@@ -22,7 +22,24 @@ import { z } from "zod";
 const publicSchema = z.object({
   NEXT_PUBLIC_SUPABASE_URL: z
     .string()
-    .url("NEXT_PUBLIC_SUPABASE_URL debe ser una URL completa, ej. https://xxxx.supabase.co"),
+    .url("NEXT_PUBLIC_SUPABASE_URL debe ser una URL completa, ej. https://xxxx.supabase.co")
+    /**
+     * Normaliza la URL a su origen.
+     *
+     * El panel de Supabase muestra en varios sitios el endpoint completo
+     * (`https://xxxx.supabase.co/rest/v1/`), y es natural copiar ese. Pero el
+     * cliente añade su propia ruta encima, así que quedaría pidiendo
+     * `/rest/v1//rest/v1/products` y devolviendo 404 con un mensaje que no apunta
+     * a la causa. Recortar al origen convierte un fallo desconcertante en un caso
+     * que simplemente funciona.
+     */
+    .transform((valor) => {
+      try {
+        return new URL(valor).origin;
+      } catch {
+        return valor.replace(/\/+$/, "");
+      }
+    }),
   NEXT_PUBLIC_SUPABASE_ANON_KEY: z
     .string()
     .min(20, "NEXT_PUBLIC_SUPABASE_ANON_KEY parece truncada"),
