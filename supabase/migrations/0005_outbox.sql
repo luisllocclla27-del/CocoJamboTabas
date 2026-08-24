@@ -171,11 +171,49 @@ create index if not exists ix_outbox_procesando
   where status = 'procesando';
 
 -- ---------------------------------------------------------------------
--- Agenda sugerida (pg_cron), si se prefiere no depender de un cron externo:
+-- Agenda del procesado
+--
+-- OPCION A (recomendada): pg_cron + pg_net, desde Supabase.
+--
+-- Es la buena si el proyecto esta en el plan Hobby de Vercel, que solo admite
+-- UNA ejecucion de cron al dia. Un outbox que se procesa una vez al dia no sirve:
+-- el cliente pagaria por la manana y recibiria la confirmacion al dia siguiente.
+-- Supabase permite cron cada minuto sin coste.
+--
+-- Requiere activar las dos extensiones en Database > Extensions y sustituir el
+-- dominio y el secreto por los reales:
+--
+--   create extension if not exists pg_cron;
+--   create extension if not exists pg_net;
+--
+--   select cron.schedule(
+--     'procesar-outbox',
+--     '*/5 * * * *',
+--     $$
+--     select net.http_get(
+--       url := 'https://TU-DOMINIO.vercel.app/api/cron/outbox',
+--       headers := '{"Authorization": "Bearer TU_CRON_SECRET"}'::jsonb
+--     );
+--     $$
+--   );
+--
+-- El secreto queda guardado en la definicion del job, visible para cualquiera con
+-- acceso al panel de Supabase. Es el mismo nivel de acceso que ya permite leer la
+-- base entera, asi que no anade exposicion; aun asi, conviene rotarlo si alguien
+-- pierde el acceso al proyecto.
+--
+-- Para ver los jobs agendados y su historial:
+--   select * from cron.job;
+--   select * from cron.job_run_details order by start_time desc limit 20;
+--
+-- OPCION B: cron de Vercel (vercel.json). En Hobby queda limitado a una vez al
+-- dia, lo que solo vale como red de seguridad, no como procesado principal.
+--
+-- EN CUALQUIER CASO, agendar tambien el rescate de eventos atascados:
 --
 --   select cron.schedule('recuperar-outbox', '*/10 * * * *',
 --     $$select recover_stuck_outbox_events(15)$$);
 --
--- El procesado en si NO se agenda aqui: necesita salir a internet para mandar los
--- mensajes, y eso lo hace la ruta /api/cron/outbox desde la aplicacion.
+-- Este si puede correr dentro de Postgres sin salir a internet, porque solo
+-- devuelve filas a 'pendiente'.
 -- ---------------------------------------------------------------------

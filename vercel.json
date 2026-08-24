@@ -3,7 +3,8 @@
   "crons": [
     {
       "path": "/api/cron/outbox",
-      "schedule": "*/5 * * * *"
+      "//": "Diario porque el plan Hobby de Vercel no admite mas de una ejecucion al dia. Para procesado cada pocos minutos: pg_cron + pg_net en Supabase (gratis, ver 0005_outbox.sql) o plan Pro.",
+      "schedule": "0 9 * * *"
     }
   ]
 }

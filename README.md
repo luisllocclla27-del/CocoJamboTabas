@@ -172,6 +172,27 @@ select cron.schedule('expirar-reservas', '*/5 * * * *',
   $$select expire_stale_reservations()$$);
 ```
 
+**Procesado del outbox.** La ruta `/api/cron/outbox` manda los avisos encolados. El
+cron de `vercel.json` está puesto a diario porque **el plan Hobby de Vercel no admite
+más de una ejecución al día**, y eso no sirve como procesado principal: el cliente
+pagaría por la mañana y recibiría la confirmación al día siguiente.
+
+La solución sin coste es agendarlo desde Supabase, que permite cron cada minuto.
+Activar `pg_cron` y `pg_net` en *Database → Extensions* y ejecutar (sustituyendo
+dominio y secreto):
+
+```sql
+select cron.schedule('procesar-outbox', '*/5 * * * *', $$
+  select net.http_get(
+    url := 'https://TU-DOMINIO.vercel.app/api/cron/outbox',
+    headers := '{"Authorization": "Bearer TU_CRON_SECRET"}'::jsonb
+  );
+$$);
+
+select cron.schedule('recuperar-outbox', '*/10 * * * *',
+  $$select recover_stuck_outbox_events(15)$$);
+```
+
 ### Variables de entorno
 
 | Variable | Obligatoria | Notas |
@@ -183,6 +204,7 @@ select cron.schedule('expirar-reservas', '*/5 * * * *',
 | `YAPE_NUMERO`, `YAPE_TITULAR` | sí | Lo que ve el cliente al pagar |
 | `PAYMENTS_TUPAY_ENABLED` | no | `false` por defecto |
 | `SHALOM_ENABLED` | no | `false` por defecto |
+| `CRON_SECRET` | en producción | Protege `/api/cron/outbox`. Sin él la ruta se niega a funcionar |
 
 ---
 
