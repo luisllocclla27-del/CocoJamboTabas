@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancela ejecuciones anteriores de la misma rama: en una serie de pushes
+# seguidos solo interesa el resultado del último.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verificar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # `npm ci` y no `npm install`: respeta el lockfile exactamente, así que la
+      # CI prueba las mismas versiones que se desarrollaron y no una resolución
+      # nueva del rango semver.
+      - run: npm ci
+
+      - name: Tipos
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Tests
+        run: npm run test
+
+      - name: Build
+        env:
+          # El build no necesita una base real, pero sí que las variables existan:
+          # `getPublicEnv()` valida el formato al arrancar. Se usan valores de
+          # relleno para que el build sea reproducible sin secretos en la CI.
+          NEXT_PUBLIC_SUPABASE_URL: https://ejemplo.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: clave-anon-de-relleno-para-el-build
+          NEXT_PUBLIC_SITE_URL: http://localhost:3000
+        run: npm run build

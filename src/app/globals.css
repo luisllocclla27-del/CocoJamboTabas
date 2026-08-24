@@ -1,0 +1,102 @@
+@import "tailwindcss";
+
+/**
+ * Identidad visual: urbano, alto contraste, editorial.
+ *
+ * Negro y blanco con un solo acento fuerte. La decisión de fondo: en una tienda
+ * de zapatillas las fotos son el producto, así que la interfaz se aparta y deja
+ * que la imagen ocupe el espacio. Cualquier color de más compite con el producto.
+ */
+
+@theme {
+  --color-tinta: #0a0a0a;
+  --color-tinta-suave: #1a1a1a;
+  --color-papel: #ffffff;
+  --color-humo: #f4f4f4;
+  --color-borde: #e4e4e4;
+  --color-gris: #6b6b6b;
+
+  /* Acento: un verde lima ácido, propio del streetwear y con buen contraste
+     sobre negro. Se usa con cuentagotas: precios, disponibilidad, CTA. */
+  --color-acento: #c8ff00;
+  --color-acento-oscuro: #a3d000;
+
+  --color-alerta: #d92d20;
+  --color-exito: #12805c;
+  --color-aviso: #b54708;
+
+  --font-display: var(--font-anton), "Arial Black", sans-serif;
+  --font-sans: var(--font-inter), system-ui, sans-serif;
+}
+
+:root {
+  --fondo: var(--color-papel);
+  --texto: var(--color-tinta);
+}
+
+body {
+  background: var(--fondo);
+  color: var(--texto);
+  font-family: var(--font-sans);
+  /* Evita el salto horizontal en móvil cuando una tarjeta se desborda. */
+  overflow-x: hidden;
+}
+
+/**
+ * Foco visible y consistente.
+ *
+ * No se usa `outline: none` en ningún sitio. Un checkout sin foco visible es
+ * inutilizable con teclado, y el teclado es la vía de quien usa lector de
+ * pantalla o no puede usar ratón. `:focus-visible` lo muestra solo cuando el
+ * usuario navega con teclado, sin ensuciar el clic con ratón.
+ */
+*:focus-visible {
+  outline: 3px solid var(--color-acento-oscuro);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/**
+ * Respeta a quien pidió menos movimiento.
+ *
+ * No es un detalle estético: las animaciones pueden provocar mareo y migraña a
+ * personas con trastornos vestibulares.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/** Tipografía de titular: comprimida y en caja alta, como el cartelismo urbano. */
+.titular {
+  font-family: var(--font-display);
+  text-transform: uppercase;
+  letter-spacing: -0.02em;
+  line-height: 0.92;
+}
+
+/** Números tabulares para precios y montos: las columnas quedan alineadas. */
+.cifra {
+  font-variant-numeric: tabular-nums;
+}
+
+/**
+ * Oculta visualmente pero mantiene el texto para lectores de pantalla.
+ * Se usa para etiquetas que el diseño resuelve con un icono.
+ */
+.solo-lectores {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
