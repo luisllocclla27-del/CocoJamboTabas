@@ -5,6 +5,13 @@ import { procesarOutbox, recuperarAtascados } from "@/lib/outbox/worker";
 /**
  * Ruta del cron que procesa el outbox.
  *
+ * AGENDA: `vercel.json` lo dispara una vez al día, porque el plan Hobby de Vercel no
+ * admite más (rechaza el despliegue si el schedule pide otra cosa). Eso NO sirve como
+ * vía principal: el cliente pagaría por la mañana y recibiría la confirmación al día
+ * siguiente. La vía real es pg_cron + pg_net desde Supabase, que permite cada minuto
+ * sin coste; está documentada en `supabase/migrations/0005_outbox.sql`. El cron de
+ * Vercel queda como red de seguridad.
+ *
  * AUTENTICACIÓN, y por qué existe: es un endpoint público que dispara trabajo. Sin
  * protección, cualquiera podría invocarlo en bucle y provocar tantas llamadas al
  * proveedor de mensajería como quisiera, o simplemente consumir la cuota de
