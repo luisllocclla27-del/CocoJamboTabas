@@ -37,8 +37,20 @@ function autorizado(request: NextRequest): boolean {
     return process.env.NODE_ENV !== "production";
   }
 
-  const cabecera = request.headers.get("authorization") ?? "";
-  const desdeCabecera = cabecera.startsWith("Bearer ") ? cabecera.slice(7) : "";
+  /**
+   * Se acepta el secreto de tres formas, por orden de preferencia:
+   *
+   * 1. `Authorization: Bearer <secreto>` — lo que envía Vercel Cron.
+   * 2. `Authorization: <secreto>` sin el prefijo — es el error más fácil de cometer
+   *    al escribir el job de `pg_cron` a mano, y rechazarlo solo produciría un 401
+   *    silencioso en un cron que nadie mira. Ser tolerante aquí no debilita nada:
+   *    el secreto tiene que coincidir igual.
+   * 3. `?token=<secreto>` — para crones que no permiten cabeceras personalizadas.
+   */
+  const cabecera = (request.headers.get("authorization") ?? "").trim();
+  const desdeCabecera = cabecera.toLowerCase().startsWith("bearer ")
+    ? cabecera.slice(7).trim()
+    : cabecera;
   const desdeQuery = request.nextUrl.searchParams.get("token") ?? "";
   const recibido = desdeCabecera !== "" ? desdeCabecera : desdeQuery;
 
