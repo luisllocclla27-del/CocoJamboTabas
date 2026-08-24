@@ -202,9 +202,17 @@ create index if not exists ix_outbox_procesando
 -- base entera, asi que no anade exposicion; aun asi, conviene rotarlo si alguien
 -- pierde el acceso al proyecto.
 --
--- Para ver los jobs agendados y su historial:
---   select * from cron.job;
---   select * from cron.job_run_details order by start_time desc limit 20;
+-- Para ver los jobs agendados y su historial. Ojo: `cron.job_run_details` NO tiene
+-- columna `jobname`, solo `jobid`; hay que unirla con `cron.job` para saber a que
+-- job corresponde cada ejecucion.
+--
+--   select jobid, jobname, schedule, active from cron.job;
+--
+--   select j.jobname, d.status, d.return_message, d.start_time
+--     from cron.job_run_details d
+--     join cron.job j on j.jobid = d.jobid
+--    order by d.start_time desc
+--    limit 20;
 --
 -- OPCION B: cron de Vercel (vercel.json). En Hobby queda limitado a una vez al
 -- dia, lo que solo vale como red de seguridad, no como procesado principal.
