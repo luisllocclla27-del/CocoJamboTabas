@@ -490,6 +490,46 @@ async function ejecutarComprobaciones(): Promise<Resultado[]> {
     });
   }
 
+  // ── Un envío por pedido (0006) ──────────────────────────────────────
+  // La restricción única sobre shipments.order_id es lo que permite el upsert al
+  // registrar la guía. Sin ella el panel falla con 42P10 justo cuando el admin va a
+  // despachar, que es el peor momento.
+  try {
+    const admin = createAdminClient();
+    const { error } = await admin
+      .from("shipments")
+      .upsert(
+        // `order_id` nulo es inválido, así que la fila nunca se crea: si el
+        // `on conflict` no encontrara el índice, el error 42P10 llegaría ANTES que
+        // la violación del not-null. Es una comprobación de esquema sin efectos.
+        { order_id: null as unknown as string, provider: "manual" },
+        { onConflict: "order_id" },
+      );
+
+    resultados.push(
+      error?.code === "42P10"
+        ? {
+            nombre: "Un envío por pedido (0006)",
+            estado: "error",
+            detalle: "falta la restricción única sobre shipments.order_id",
+            codigo: error.code,
+            solucion:
+              "Ejecuta supabase/migrations/0006_shipments_unique.sql. Sin ella, el panel no puede guardar la guía de envío.",
+          }
+        : {
+            nombre: "Un envío por pedido (0006)",
+            estado: "ok",
+            detalle: "La restricción existe: el panel puede registrar y corregir guías.",
+          },
+    );
+  } catch {
+    resultados.push({
+      nombre: "Un envío por pedido (0006)",
+      estado: "aviso",
+      detalle: "no se pudo comprobar la restricción",
+    });
+  }
+
   // ── Expiración de reservas agendada ─────────────────────────────────────
   // Sin el cron, cada checkout abandonado bloquea una talla para siempre. No se
   // puede comprobar desde aquí si pg_cron está agendado (la tabla cron.job no es

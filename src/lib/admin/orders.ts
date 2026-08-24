@@ -140,6 +140,10 @@ export async function registrarEnvio(entrada: {
 
   // `upsert` sobre order_id: si el admin corrige un dato mal tecleado, se
   // actualiza la fila en vez de crear un segundo envío para el mismo pedido.
+  //
+  // Requiere la restricción única `ux_shipments_order_id` de
+  // 0006_shipments_unique.sql: sin ella Postgres responde 42P10 porque el
+  // `on conflict` no encuentra ningún índice único que corresponda.
   const { error: errorEnvio } = await supabase.from("shipments").upsert(
     {
       order_id: parsed.data.orderId,
@@ -153,7 +157,16 @@ export async function registrarEnvio(entrada: {
   );
 
   if (errorEnvio !== null) {
-    return { ok: false, error: "No pudimos guardar los datos del envío." };
+    // El código de Postgres se incluye en el mensaje técnico porque distingue una
+    // migración sin aplicar de un problema de datos, y sin él el admin solo ve
+    // "no pudimos guardar" sin ninguna pista de qué hacer.
+    const falta42P10 = errorEnvio.code === "42P10";
+    return {
+      ok: false,
+      error: falta42P10
+        ? "Falta aplicar la migración 0006_shipments_unique.sql en Supabase: sin la restricción única no se puede guardar el envío."
+        : `No pudimos guardar los datos del envío (${errorEnvio.code ?? "sin código"}).`,
+    };
   }
 
   await supabase
