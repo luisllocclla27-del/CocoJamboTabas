@@ -59,6 +59,7 @@ function NavegacionPanel() {
     { href: "/admin/pagos", texto: "Verificar pagos" },
     { href: "/admin/pedidos", texto: "Pedidos" },
     { href: "/admin/productos", texto: "Productos" },
+    { href: "/admin/avisos", texto: "Avisos" },
     { href: "/admin/espera", texto: "Lista de espera" },
   ];
   return (

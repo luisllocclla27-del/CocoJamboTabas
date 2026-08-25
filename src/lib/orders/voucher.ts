@@ -271,6 +271,8 @@ export async function subirComprobante(datos: FormData): Promise<ResultadoCompro
 
   revalidatePath(`/pago/${reference}`);
   revalidatePath(`/seguimiento/${reference}`);
+  revalidatePath("/admin/avisos");
+  revalidatePath("/admin");
   return { ok: true, enRevision: true };
 }
 

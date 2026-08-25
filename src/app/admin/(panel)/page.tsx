@@ -46,6 +46,26 @@ export default async function ResumenPage() {
         </Link>
       )}
 
+      {resumen.avisosPendientes > 0 && (
+        <Link
+          href="/admin/avisos"
+          className="mt-3 flex items-center justify-between gap-4 rounded-xl border border-[var(--color-borde)] p-5 hover:border-[var(--color-tinta)]"
+        >
+          <span>
+            <span className="titular block text-2xl">
+              {resumen.avisosPendientes}{" "}
+              {resumen.avisosPendientes === 1 ? "aviso por mandar" : "avisos por mandar"}
+            </span>
+            <span className="text-sm text-[var(--color-gris)]">
+              Mensajes ya redactados esperando que los envíes por WhatsApp.
+            </span>
+          </span>
+          <span aria-hidden="true" className="text-2xl font-bold">
+            →
+          </span>
+        </Link>
+      )}
+
       <div className="mt-6 grid gap-4 sm:grid-cols-3">
         <Tarjeta
           etiqueta="Ventas del mes"

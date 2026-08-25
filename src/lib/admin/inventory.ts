@@ -4,50 +4,79 @@
  * Gestión de stock desde el panel.
  *
  * Solo se expone lo que el comerciante realmente necesita a diario: ajustar el
- * stock de una talla al recibir mercadería o al detectar un descuadre. El alta
- * completa de productos vive en el SQL Editor de Supabase por ahora; construir un
- * formulario de alta con subida de fotos antes de que la tienda venda su primer par
- * sería resolver un problema que aún no existe.
+ * stock de una talla al recibir mercadería o al detectar un descuadre. El alta de
+ * productos nuevos vive en `products.ts`.
  *
- * Los ajustes se registran en `order_events`... no: esa tabla es de pedidos. Un
- * historial de movimientos de inventario sería lo correcto y NO existe todavía;
- * queda anotado como deuda consciente, porque sin él un descuadre de stock no se
- * puede reconstruir.
+ * Cada ajuste queda registrado en `inventory_moves`, y esa escritura ocurre dentro
+ * de la función `adjust_stock()` en Postgres, no aquí. El motivo: son dos
+ * escrituras (el stock y el movimiento) que tienen que pasar juntas o ninguna. Si
+ * se hicieran desde el servidor con dos consultas, un fallo entre ellas dejaría el
+ * stock cambiado sin rastro, que es justo el problema que el historial venía a
+ * resolver.
  */
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/client";
-import { isAdmin } from "@/lib/supabase/server";
+import { createServerClient, isAdmin } from "@/lib/supabase/server";
+import { MAX_STOCK_VARIANTE, MOTIVOS_STOCK, type MotivoStock } from "./inventory-config";
 
 export type ResultadoStock = { ok: true; stock: number } | { ok: false; error: string };
 
 const ajusteSchema = z.object({
   variantId: z.string().uuid(),
-  // Tope alto pero finito: un dedo pegado al teclado no debe dejar 99999 pares en
-  // el catálogo.
-  stock: z.number().int().min(0).max(999),
+  stock: z.number().int().min(0).max(MAX_STOCK_VARIANTE),
+  motivo: z.enum(MOTIVOS_STOCK).default("ajuste_manual"),
+  nota: z.string().trim().max(200).optional(),
 });
+
+/** Identidad del admin, para dejarla en el historial. `null` si no autorizado. */
+async function actorAdmin(): Promise<string | null> {
+  if (!(await isAdmin())) return null;
+  const supabase = await createServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  return user === null ? "admin:desconocido" : `admin:${user.id}`;
+}
 
 export async function ajustarStock(entrada: {
   variantId: string;
   stock: number;
+  motivo?: MotivoStock;
+  nota?: string;
 }): Promise<ResultadoStock> {
   const parsed = ajusteSchema.safeParse(entrada);
   if (!parsed.success) {
-    return { ok: false, error: "El stock debe ser un número entero entre 0 y 999." };
+    return {
+      ok: false,
+      error: `El stock debe ser un número entero entre 0 y ${MAX_STOCK_VARIANTE}.`,
+    };
   }
-  if (!(await isAdmin())) return { ok: false, error: "No tienes permiso para esta acción." };
+
+  const actor = await actorAdmin();
+  if (actor === null) return { ok: false, error: "No tienes permiso para esta acción." };
 
   const supabase = createAdminClient();
-  const { data, error } = await supabase
-    .from("variants")
-    .update({ stock: parsed.data.stock })
-    .eq("id", parsed.data.variantId)
-    .select("stock")
-    .maybeSingle();
+  const { data, error } = await supabase.rpc("adjust_stock", {
+    p_variant_id: parsed.data.variantId,
+    p_stock_nuevo: parsed.data.stock,
+    p_motivo: parsed.data.motivo,
+    p_nota: parsed.data.nota ?? null,
+    p_actor: actor,
+  });
 
-  if (error !== null || data === null) {
+  if (error !== null) {
+    // PGRST202: la función no existe en el esquema. Es un despliegue con la
+    // migración sin aplicar, y decirlo por su nombre ahorra media hora de
+    // buscar por qué "no pudimos actualizar el stock".
+    if (error.code === "PGRST202") {
+      return {
+        ok: false,
+        error:
+          "Falta aplicar supabase/migrations/0007_product_media.sql en Supabase: sin adjust_stock() no se puede registrar el movimiento.",
+      };
+    }
     return { ok: false, error: "No pudimos actualizar el stock." };
   }
 
@@ -56,7 +85,9 @@ export async function ajustarStock(entrada: {
   revalidatePath("/catalogo");
   revalidatePath("/admin/productos");
   revalidatePath("/admin");
-  return { ok: true, stock: data.stock };
+  // La función devuelve el stock resultante. Si no llegara un número, se refleja
+  // lo pedido: la escritura sí ocurrió.
+  return { ok: true, stock: typeof data === "number" ? data : parsed.data.stock };
 }
 
 const visibilidadSchema = z.object({

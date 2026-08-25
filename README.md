@@ -84,15 +84,18 @@ Ninguna de las dos se automatiza.
 ```
 src/lib/
 ├── money.ts, payment-cents.ts, order-status.ts, reference.ts, sizes.ts   núcleo de dominio
+├── catalog/        slugs y SKUs de producto
 ├── fraud/          pHash, parser de vouchers, score de riesgo, EXIF
+├── images/         magic bytes, compartido por vouchers y fotos de producto
 ├── payments/       PaymentProvider: Yape manual · Tupay
 ├── shipping/       ShippingProvider: manual · Shalom
 ├── cart/           carrito en cookie firmada
 ├── orders/         creación, lectura pública, comprobantes
+├── outbox/         redacción de mensajes y worker de la cola
 ├── admin/          consultas y acciones del panel
 └── supabase/       clientes por contexto (navegador · servidor · admin)
 
-supabase/migrations/  16 tablas, 6 enums, RLS completa, 6 funciones
+supabase/migrations/  17 tablas, 6 enums, RLS completa, 9 funciones
 ```
 
 **Las dos interfaces son el punto arquitectónico.** `PaymentProvider` y
@@ -154,8 +157,15 @@ supabase/migrations/0001_schema.sql
 supabase/migrations/0002_rls.sql
 supabase/migrations/0003_functions.sql
 supabase/migrations/0004_storage.sql
+supabase/migrations/0005_outbox.sql
+supabase/migrations/0006_shipments_unique.sql
+supabase/migrations/0007_product_media.sql
 supabase/seed.sql
 ```
+
+Las dos últimas no son opcionales para operar: sin 0006 el panel no puede guardar la
+guía de envío, y sin 0007 no hay bucket de fotos ni `adjust_stock()`, así que no se
+puede cargar un producto ni reponer stock. `/diagnostico` dice cuáles faltan.
 
 **Usuario admin.** Crear el usuario en *Authentication → Users* y autorizarlo:
 
@@ -171,6 +181,9 @@ siempre. Activar `pg_cron` y agendar:
 select cron.schedule('expirar-reservas', '*/5 * * * *',
   $$select expire_stale_reservations()$$);
 ```
+
+`/diagnostico` lo comprueba por el síntoma: si hay reservas ya vencidas que siguen en
+`activa`, el cron no está corriendo y lo marca en rojo.
 
 **Procesado del outbox.** La ruta `/api/cron/outbox` manda los avisos encolados. El
 cron de `vercel.json` está puesto a diario porque **el plan Hobby de Vercel no admite
@@ -213,14 +226,39 @@ select cron.schedule('recuperar-outbox', '*/10 * * * *',
 ```bash
 npm run dev         npm run build      npm start
 npm run test        npm run typecheck  npm run lint
+npm run check:env   # comprueba .env.local antes de arrancar
 ```
 
-**653 tests.** No buscan cobertura: cubren los invariantes que, si se rompen, cuestan
+**775 tests.** No buscan cobertura: cubren los invariantes que, si se rompen, cuestan
 dinero. Por ejemplo, que el total con céntimos únicos nunca quede por debajo del importe
 real ni lo supere en más de un sol (barrido exhaustivo), que la fecha
 `"2026-04-16 11:40:45"` de Shalom sea hora de Perú y no UTC, que un webhook repetido no
-dispare dos veces sus efectos, y que ningún mensaje de error contenga la contraseña de
-Shalom Pro.
+dispare dos veces sus efectos, que un precio tachado menor que el real se rechace por ser
+publicidad engañosa, y que ningún mensaje de error contenga la contraseña de Shalom Pro.
+
+---
+
+## Recorrido para probarlo
+
+Con las migraciones aplicadas y el seed cargado, el circuito completo se recorre en unos
+minutos. Es el guión con el que conviene enseñarlo:
+
+1. `/diagnostico` — confirma que las siete comprobaciones están en verde antes de tocar
+   nada. Si algo falla, dice qué archivo SQL falta.
+2. `/catalogo` — filtra por talla y entra a una ficha. Elige una talla, añade al carrito.
+3. `/checkout` — los tres modos de entrega cambian los campos que se piden y el costo de
+   envío se recalcula mientras escribes.
+4. `/pago/COCO-XXXXXX` — el monto lleva **céntimos únicos**: es lo que identifica el pago
+   sin pedirle al cliente que copie ningún código. Sube cualquier captura y un número de
+   operación.
+5. `/admin/pagos` — el comprobante aparece en la cola con su score de riesgo y sus
+   señales. Aprobar descuenta el stock; rechazar exige motivo, y el cliente lo lee en su
+   seguimiento.
+6. `/admin/avisos` — el mensaje de confirmación ya está redactado. Se manda con un clic y
+   se marca como enviado.
+7. `/admin/productos/nuevo` — carga un modelo con sus tallas y fotos. Nace oculto; se
+   publica desde la lista.
+8. `/seguimiento/COCO-XXXXXX` — lo que ve el cliente, sin cuenta y sin contraseña.
 
 ---
 
@@ -229,7 +267,8 @@ Shalom Pro.
 **Funciona:** catálogo con filtros por talla disponible, ficha de producto, lista de
 espera, carrito, checkout con reservas, pago por Yape con céntimos únicos, subida de
 comprobante, seguimiento sin cuenta, panel con cola de verificación, gestión de pedidos,
-ajuste de stock y lista de espera.
+alta de productos con fotos, ajuste de stock con historial, cola de avisos de WhatsApp y
+lista de espera.
 
 **Falta, y por qué:**
 
@@ -240,11 +279,13 @@ ajuste de stock y lista de espera.
 - **Tupay no puede vivir en serverless.** Exige whitelisting de IP de salida y Vercel usa
   IPs dinámicas: fallaría de forma intermitente, el peor modo de fallo. Requiere un host
   con IP fija o NAT estático. Por eso está apagado por defecto.
-- **Sin worker del outbox.** Los avisos de WhatsApp se encolan en `outbox` pero nadie los
-  consume todavía.
-- **Sin historial de movimientos de inventario.** Un ajuste de stock no queda registrado,
-  así que un descuadre no se puede reconstruir. Deuda consciente.
-- **Alta de productos por SQL.** El formulario con subida de fotos es lo siguiente.
+- **El envío de WhatsApp lo hace una persona.** La API de WhatsApp Business exige
+  verificación del negocio y plantillas aprobadas, que no se resuelven desde el código. El
+  sistema redacta el mensaje y lo deja en `/admin/avisos` con su enlace `wa.me`; el
+  comerciante lo manda con un clic y registra que lo hizo. Cuando haya proveedor, se
+  implementa la interfaz `Notificador` y el worker no cambia.
+- **Sin edición de productos ya creados.** Se pueden crear, ocultar y ajustar su stock,
+  pero corregir un precio o añadir una foto a un producto existente sigue siendo SQL.
 - **El umbral del pHash (10 sobre 64) no está calibrado con vouchers reales.** Todos los
   vouchers de Yape comparten plantilla, así que la distancia entre dos legítimos distintos
   es menor que entre dos fotos cualesquiera. Hay que recalibrarlo con un lote real antes de

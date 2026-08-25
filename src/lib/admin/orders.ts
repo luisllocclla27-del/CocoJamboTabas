@@ -121,7 +121,7 @@ export async function registrarEnvio(entrada: {
 
   const { data: pedido, error: errorLectura } = await supabase
     .from("orders")
-    .select("id, reference, status")
+    .select("id, reference, status, customers!inner(telefono)")
     .eq("id", parsed.data.orderId)
     .maybeSingle();
 
@@ -129,12 +129,19 @@ export async function registrarEnvio(entrada: {
     return { ok: false, error: "No encontramos ese pedido." };
   }
 
+  const fila = pedido as unknown as {
+    id: string;
+    reference: string;
+    status: OrderStatus;
+    customers: { telefono: string };
+  };
+
   // Un envío solo tiene sentido con el pago ya resuelto: registrar la guía de un
   // pedido sin pagar significaría que la mercadería salió sin cobrar.
-  if (pedido.status !== "preparando" && pedido.status !== "verificado") {
+  if (fila.status !== "preparando" && fila.status !== "verificado") {
     return {
       ok: false,
-      error: `El pedido está en "${pedido.status}". Solo se puede registrar el envío de un pedido en preparación.`,
+      error: `El pedido está en "${fila.status}". Solo se puede registrar el envío de un pedido en preparación.`,
     };
   }
 
@@ -177,7 +184,7 @@ export async function registrarEnvio(entrada: {
   // Si venía de `verificado`, hay que pasar por `preparando` primero: la máquina
   // de estados no permite el salto.
   const camino: OrderStatus[] =
-    pedido.status === "verificado" ? ["preparando", "enviado"] : ["enviado"];
+    fila.status === "verificado" ? ["preparando", "enviado"] : ["enviado"];
 
   for (const destino of camino) {
     const { error } = await supabase.rpc("transition_order_status", {
@@ -197,7 +204,8 @@ export async function registrarEnvio(entrada: {
   await supabase.from("outbox").insert({
     tipo: "whatsapp_pedido_enviado",
     payload: {
-      reference: pedido.reference,
+      reference: fila.reference,
+      telefono: fila.customers.telefono,
       guia: parsed.data.guia,
       clave_retiro: parsed.data.claveRetiro,
       agencia: parsed.data.agencia,
@@ -205,6 +213,7 @@ export async function registrarEnvio(entrada: {
   });
 
   revalidatePath("/admin/pedidos");
-  revalidatePath(`/seguimiento/${pedido.reference}`);
+  revalidatePath("/admin/avisos");
+  revalidatePath(`/seguimiento/${fila.reference}`);
   return { ok: true };
 }

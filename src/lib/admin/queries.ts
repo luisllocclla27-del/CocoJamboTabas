@@ -30,6 +30,8 @@ export type ResumenPanel = {
   }>;
   enEspera: number;
   tallasQueRotan: Array<{ sizeUs: number; unidades: number }>;
+  /** Avisos redactados esperando que alguien los mande. */
+  avisosPendientes: number;
 };
 
 /** Estados que cuentan como venta cerrada para el resumen. */
@@ -41,7 +43,7 @@ export async function obtenerResumen(): Promise<ResumenPanel> {
   inicioMes.setUTCDate(1);
   inicioMes.setUTCHours(0, 0, 0, 0);
 
-  const [colaVerificacion, ventas, stockBajo, espera] = await Promise.all([
+  const [colaVerificacion, ventas, stockBajo, espera, avisos] = await Promise.all([
     supabase
       .from("orders")
       .select("id", { count: "exact", head: true })
@@ -67,6 +69,14 @@ export async function obtenerResumen(): Promise<ResumenPanel> {
       .from("waitlist")
       .select("id", { count: "exact", head: true })
       .eq("notificado", false),
+
+    // El error no se propaga: sin la migración 0005 la tabla `outbox` no existe y
+    // el resumen tiene que seguir cargando. La cifra queda en 0 y la pantalla de
+    // avisos es la que explica el problema.
+    supabase
+      .from("outbox")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "pendiente"),
   ]);
 
   type FilaVenta = {
@@ -122,7 +132,28 @@ export async function obtenerResumen(): Promise<ResumenPanel> {
       .map(([sizeUs, unidades]) => ({ sizeUs, unidades }))
       .sort((a, b) => b.unidades - a.unidades)
       .slice(0, 6),
+    avisosPendientes: avisos.count ?? 0,
   };
+}
+
+/**
+ * Marcas para el formulario de alta.
+ *
+ * Se listan también las inactivas, al contrario que en el catálogo público: una
+ * marca desactivada sigue siendo una marca de la que puede llegar mercadería, y
+ * ocultarla aquí obligaría a reactivarla antes de poder cargar el producto.
+ */
+export async function listarMarcasAdmin(): Promise<
+  Array<{ slug: string; nombre: string; activo: boolean }>
+> {
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
+    .from("brands")
+    .select("slug, nombre, activo")
+    .order("orden", { ascending: true });
+
+  if (error !== null) throw new Error(`no se pudieron leer las marcas: ${error.message}`);
+  return (data ?? []) as Array<{ slug: string; nombre: string; activo: boolean }>;
 }
 
 export type ComprobantePendiente = {

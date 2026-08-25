@@ -530,18 +530,115 @@ async function ejecutarComprobaciones(): Promise<Resultado[]> {
     });
   }
 
+  // ── Alta de productos desde el panel (0007) ─────────────────────────────
+  // Dos cosas distintas que vienen en el mismo archivo: el bucket público de fotos
+  // y adjust_stock(). Si falta el bucket, el formulario de alta crea el producto sin
+  // fotos; si falta la función, no se puede ni reponer stock.
+  try {
+    const admin = createAdminClient();
+    const [bucket, funcion] = await Promise.all([
+      admin.storage.getBucket("productos"),
+      // Un uuid inexistente: la función lanza "la variante no existe", que ya
+      // demuestra que está aplicada, sin tocar ningún stock real.
+      admin.rpc("adjust_stock", {
+        p_variant_id: "00000000-0000-4000-8000-000000000000",
+        p_stock_nuevo: 0,
+        p_motivo: "ajuste_manual",
+        p_nota: null,
+        p_actor: "diagnostico",
+      }),
+    ]);
+
+    const faltaBucket = bucket.error !== null || bucket.data === null;
+    const faltaFuncion =
+      funcion.error !== null &&
+      (funcion.error.code === "PGRST202" || funcion.error.code === "42883");
+
+    resultados.push(
+      faltaBucket || faltaFuncion
+        ? {
+            nombre: "Alta de productos y stock (0007)",
+            estado: "error",
+            detalle: faltaFuncion
+              ? "adjust_stock() no existe: no se puede ajustar stock ni cargar productos"
+              : "el bucket 'productos' no existe: las fotos no se pueden subir",
+            ...(faltaFuncion && funcion.error?.code !== undefined
+              ? { codigo: funcion.error.code }
+              : {}),
+            solucion:
+              "Ejecuta supabase/migrations/0007_product_media.sql. Crea el bucket de fotos, el historial de inventario y adjust_stock().",
+          }
+        : {
+            nombre: "Alta de productos y stock (0007)",
+            estado: bucket.data?.public === false ? "aviso" : "ok",
+            detalle:
+              bucket.data?.public === false
+                ? "La función existe, pero el bucket 'productos' es privado: las fotos del catálogo no cargarían."
+                : "El bucket de fotos y adjust_stock() están aplicados: se pueden cargar productos desde el panel.",
+            ...(bucket.data?.public === false
+              ? {
+                  solucion:
+                    "En Storage → productos → Settings, marca 'Public bucket'. Una foto de producto es material de marketing: se sirve desde el CDN.",
+                }
+              : {}),
+          },
+    );
+  } catch {
+    resultados.push({
+      nombre: "Alta de productos y stock (0007)",
+      estado: "error",
+      detalle: "no se pudo comprobar el bucket ni la función",
+    });
+  }
+
   // ── Expiración de reservas agendada ─────────────────────────────────────
-  // Sin el cron, cada checkout abandonado bloquea una talla para siempre. No se
-  // puede comprobar desde aquí si pg_cron está agendado (la tabla cron.job no es
-  // accesible por la API REST), así que se deja como recordatorio explícito.
-  resultados.push({
-    nombre: "Expiración de reservas (no verificable desde aquí)",
-    estado: "aviso",
-    detalle:
-      "No se puede comprobar por API si el cron está agendado. Sin él, cada checkout abandonado bloquea una talla para siempre.",
-    solucion:
-      "En el SQL Editor: select cron.schedule('expirar-reservas', '*/5 * * * *', $$select expire_stale_reservations()$$); Requiere activar pg_cron en Database → Extensions.",
-  });
+  // No se puede leer `cron.job` por la API REST, así que en vez de un recordatorio
+  // ciego se mide el SÍNTOMA: reservas todavía 'activa' con la fecha ya pasada. Si
+  // hay alguna, el cron no está corriendo y esas tallas están bloqueadas sin que
+  // ningún pedido las respalde.
+  try {
+    const admin = createAdminClient();
+    const { count, error } = await admin
+      .from("reservations")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "activa")
+      .lt("expires_at", new Date().toISOString());
+
+    const vencidas = count ?? 0;
+
+    resultados.push(
+      error !== null
+        ? {
+            nombre: "Expiración de reservas",
+            estado: "error",
+            detalle: explicar(error.code) ?? "no se pudo leer la tabla de reservas",
+            codigo: error.code,
+            solucion: "Ejecuta supabase/migrations/0001_schema.sql.",
+          }
+        : vencidas > 0
+          ? {
+              nombre: "Expiración de reservas",
+              estado: "error",
+              detalle: `${vencidas} ${vencidas === 1 ? "reserva vencida sigue" : "reservas vencidas siguen"} bloqueando stock: el cron no está corriendo.`,
+              solucion:
+                "Activa pg_cron en Database → Extensions y ejecuta: select cron.schedule('expirar-reservas', '*/5 * * * *', $$select expire_stale_reservations()$$); Para liberar las de ahora: select expire_stale_reservations();",
+            }
+          : {
+              nombre: "Expiración de reservas",
+              estado: "aviso",
+              detalle:
+                "No hay reservas vencidas sin liberar. Eso es buena señal, pero no prueba que el cron esté agendado: también ocurre si nadie abandonó un checkout todavía.",
+              solucion:
+                "Confírmalo en el SQL Editor con: select jobname, schedule from cron.job; Si no aparece 'expirar-reservas', agéndalo: select cron.schedule('expirar-reservas', '*/5 * * * *', $$select expire_stale_reservations()$$);",
+            },
+    );
+  } catch {
+    resultados.push({
+      nombre: "Expiración de reservas",
+      estado: "aviso",
+      detalle: "no se pudo comprobar el estado de las reservas",
+    });
+  }
 
   return resultados;
 }

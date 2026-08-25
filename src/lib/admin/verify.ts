@@ -70,7 +70,7 @@ export async function aprobarPago(entrada: { paymentId: string }): Promise<Resul
   // mismo pago.
   const { data, error } = await supabase
     .from("payments")
-    .select("id, order_id, status, orders!inner(reference, status)")
+    .select("id, order_id, status, orders!inner(reference, status, customers!inner(telefono))")
     .eq("id", parsed.data.paymentId)
     .maybeSingle();
 
@@ -80,7 +80,7 @@ export async function aprobarPago(entrada: { paymentId: string }): Promise<Resul
     id: string;
     order_id: string;
     status: string;
-    orders: { reference: string; status: string };
+    orders: { reference: string; status: string; customers: { telefono: string } };
   };
 
   if (fila.status !== "en_revision") {
@@ -118,12 +118,19 @@ export async function aprobarPago(entrada: { paymentId: string }): Promise<Resul
     }
   }
 
+  // El teléfono va en el payload, no solo la referencia: `construirMensaje`
+  // descarta el evento sin un celular normalizable, y sin él el aviso más
+  // importante de la tienda (te confirmamos el pago) no se llegaba a redactar.
   await supabase.from("outbox").insert({
     tipo: "whatsapp_pago_aprobado",
-    payload: { reference: fila.orders.reference },
+    payload: {
+      reference: fila.orders.reference,
+      telefono: fila.orders.customers.telefono,
+    },
   });
 
   revalidatePath("/admin/pagos");
+  revalidatePath("/admin/avisos");
   revalidatePath("/admin");
   revalidatePath(`/seguimiento/${fila.orders.reference}`);
   return { ok: true };
@@ -155,7 +162,7 @@ export async function rechazarPago(entrada: {
 
   const { data, error } = await supabase
     .from("payments")
-    .select("id, order_id, status, orders!inner(reference)")
+    .select("id, order_id, status, orders!inner(reference, customers!inner(telefono))")
     .eq("id", parsed.data.paymentId)
     .maybeSingle();
 
@@ -165,7 +172,7 @@ export async function rechazarPago(entrada: {
     id: string;
     order_id: string;
     status: string;
-    orders: { reference: string };
+    orders: { reference: string; customers: { telefono: string } };
   };
 
   if (fila.status !== "en_revision") {
@@ -198,10 +205,15 @@ export async function rechazarPago(entrada: {
 
   await supabase.from("outbox").insert({
     tipo: "whatsapp_pago_rechazado",
-    payload: { reference: fila.orders.reference, motivo: parsed.data.motivo },
+    payload: {
+      reference: fila.orders.reference,
+      telefono: fila.orders.customers.telefono,
+      motivo: parsed.data.motivo,
+    },
   });
 
   revalidatePath("/admin/pagos");
+  revalidatePath("/admin/avisos");
   revalidatePath("/admin");
   revalidatePath(`/seguimiento/${fila.orders.reference}`);
   return { ok: true };
