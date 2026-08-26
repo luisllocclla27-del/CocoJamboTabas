@@ -6,6 +6,8 @@ import { formatSizeTriple } from "@/lib/sizes";
 import { isSupabaseConfigured } from "@/lib/env";
 import { obtenerProducto } from "@/lib/supabase/catalog";
 import { SelectorTalla } from "./selector-talla";
+import { GaleriaInteractiva } from "@/components/galeria-interactiva";
+import { CompartirProductoPublico } from "@/components/compartir-producto";
 
 export const revalidate = 60;
 
@@ -45,6 +47,8 @@ export default async function ProductoPage({ params }: Props) {
   if (producto === null) notFound();
 
   const hayStock = producto.variants.some((v) => v.disponible > 0);
+  const totalDisponible = producto.variants.reduce((acc, v) => acc + v.disponible, 0);
+  const esUltimoDisponible = hayStock && totalDisponible <= 2;
   const enOferta =
     producto.compare_at_price_cents !== null &&
     producto.compare_at_price_cents > producto.price_cents;
@@ -52,7 +56,7 @@ export default async function ProductoPage({ params }: Props) {
   return (
     <article className="mx-auto max-w-6xl px-4 py-8">
       <div className="grid gap-10 lg:grid-cols-2">
-        <Galeria imagenes={producto.images} nombre={`${producto.modelo} ${producto.colorway}`} />
+        <GaleriaInteractiva imagenes={producto.images} nombre={`${producto.modelo} ${producto.colorway}`} />
 
         <div>
           <p className="text-sm font-semibold uppercase tracking-[0.15em] text-[var(--color-gris)]">
@@ -70,17 +74,22 @@ export default async function ProductoPage({ params }: Props) {
             )}
           </div>
 
-          {!hayStock && (
+          {!hayStock ? (
             <p
-              // `role="status"` para que el lector de pantalla anuncie el agotado
-              // sin que el usuario tenga que buscarlo.
               role="status"
               className="mt-4 rounded-lg border border-[var(--color-borde)] bg-[var(--color-humo)] px-4 py-3 text-sm"
             >
-              Agotado por ahora. Es un modelo de reposición constante: pide aviso y te escribimos
-              cuando entre tu talla.
+              Agotado por ahora. Si buscas este modelo o talla, escríbenos por WhatsApp para avisarte cuando ingrese otro similar.
             </p>
-          )}
+          ) : esUltimoDisponible ? (
+            <p
+              role="status"
+              className="mt-4 flex items-center gap-2 rounded-lg border border-[var(--color-aviso)]/40 bg-[var(--color-aviso)]/10 px-4 py-2.5 text-sm font-semibold text-[var(--color-aviso)]"
+            >
+              <span aria-hidden="true">⚡</span>
+              {totalDisponible === 1 ? "Pieza única · Solo 1 disponible" : `Últimas ${totalDisponible} unidades disponibles`}
+            </p>
+          ) : null}
 
           <SelectorTalla
             productoId={producto.id}
@@ -96,12 +105,18 @@ export default async function ProductoPage({ params }: Props) {
 
           {producto.descripcion !== null && (
             <section className="mt-8">
-              <h2 className="font-bold">Sobre este par</h2>
+              <h2 className="font-bold">Sobre este artículo</h2>
               <p className="mt-2 text-[var(--color-gris)]">{producto.descripcion}</p>
             </section>
           )}
 
           <Detalles producto={producto} />
+
+          <CompartirProductoPublico
+            modelo={`${producto.brand.nombre} ${producto.modelo}`}
+            colorway={producto.colorway}
+            precioTexto={formatSoles(producto.price_cents)}
+          />
         </div>
       </div>
 
@@ -109,8 +124,6 @@ export default async function ProductoPage({ params }: Props) {
           el resultado de búsqueda. En una tienda esto es tráfico directo. */}
       <script
         type="application/ld+json"
-        // El contenido se serializa con JSON.stringify sobre datos propios de la
-        // base, no sobre entrada del usuario.
         dangerouslySetInnerHTML={{
           __html: JSON.stringify({
             "@context": "https://schema.org",
@@ -127,7 +140,10 @@ export default async function ProductoPage({ params }: Props) {
               availability: hayStock
                 ? "https://schema.org/InStock"
                 : "https://schema.org/OutOfStock",
-              itemCondition: "https://schema.org/NewCondition",
+              itemCondition:
+                producto.condicion === "nuevo_en_caja" || producto.condicion === "nuevo_sin_caja"
+                  ? "https://schema.org/NewCondition"
+                  : "https://schema.org/UsedCondition",
             },
           }),
         }}
@@ -193,14 +209,6 @@ function Galeria({
   );
 }
 
-/**
- * Detalles del par.
- *
- * La nota de calce solo se muestra si el comerciante la escribió. No se genera
- * ninguna afirmación sobre cómo calza un modelo: un dato de calce inventado
- * produce devoluciones reales, y solo quien tiene el par en la mano puede
- * afirmarlo.
- */
 function Detalles({
   producto,
 }: {
@@ -214,19 +222,32 @@ function Detalles({
   const conCalce =
     producto.nota_calce !== null &&
     producto.nota_calce.trim() !== "" &&
-    // El seed deja una plantilla marcada para que el comerciante la complete; no
-    // debe llegar al cliente tal cual.
     !producto.nota_calce.includes("EJEMPLO A COMPLETAR");
 
   const ejemplo = producto.variants.find((v) => v.size_eu !== null && v.size_cm !== null);
+
+  const formatoEstado = (() => {
+    switch (producto.condicion) {
+      case "nuevo_en_caja":
+        return "Nuevo, en su caja original";
+      case "nuevo_sin_caja":
+        return "Nuevo, sin caja";
+      case "usado_como_nuevo":
+        return "Segunda mano · Como nuevo (sin marcas visibles de uso)";
+      case "usado_buen_estado":
+        return "Segunda mano · Buen estado (ligeras marcas normales de uso)";
+      case "vintage":
+        return "Vintage · Pieza única con historia";
+      default:
+        return "Excelente estado";
+    }
+  })();
 
   return (
     <dl className="mt-8 space-y-4 border-t border-[var(--color-borde)] pt-6 text-sm">
       <div>
         <dt className="font-bold">Estado</dt>
-        <dd className="mt-1 text-[var(--color-gris)]">
-          {producto.condicion === "nuevo_en_caja" ? "Nuevo, en su caja original" : "Nuevo, sin caja"}
-        </dd>
+        <dd className="mt-1 text-[var(--color-gris)]">{formatoEstado}</dd>
       </div>
 
       {producto.garantia_originalidad !== null && (

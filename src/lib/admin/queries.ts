@@ -449,6 +449,127 @@ export async function listarProductosAdmin(): Promise<ProductoAdmin[]> {
   }));
 }
 
+export type ProductoAdminDetalle = {
+  id: string;
+  slug: string;
+  brandId: string;
+  brandSlug: string;
+  brandNombre: string;
+  modelo: string;
+  colorway: string;
+  silueta: string | null;
+  descripcion: string | null;
+  condicion: string;
+  costCents: Cents;
+  priceCents: Cents;
+  compareAtPriceCents: Cents | null;
+  notaCalce: string | null;
+  activo: boolean;
+  destacado: boolean;
+  images: Array<{
+    id: string;
+    url: string;
+    alt: string;
+    orden: number;
+    esPrincipal: boolean;
+  }>;
+  variantes: Array<{
+    id: string;
+    sizeUs: number;
+    sizeEu: number | null;
+    sizeCm: number | null;
+    stock: number;
+    sku: string;
+    activo: boolean;
+  }>;
+};
+
+/**
+ * Consulta detallada de un producto para su pantalla de edición.
+ */
+export async function obtenerProductoAdminDetalle(id: string): Promise<ProductoAdminDetalle | null> {
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
+    .from("products")
+    .select(
+      `
+      id, slug, brand_id, modelo, colorway, silueta, descripcion, condicion,
+      cost_cents, price_cents, compare_at_price_cents, nota_calce, activo, destacado,
+      brands!inner ( id, slug, nombre ),
+      product_images ( id, url, alt, orden, es_principal ),
+      variants ( id, size_us, size_eu, size_cm, stock, sku, activo )
+    `,
+    )
+    .eq("id", id)
+    .maybeSingle();
+
+  if (error !== null || data === null) return null;
+
+  type FilaDetalle = {
+    id: string;
+    slug: string;
+    brand_id: string;
+    modelo: string;
+    colorway: string;
+    silueta: string | null;
+    descripcion: string | null;
+    condicion: string;
+    cost_cents: number;
+    price_cents: number;
+    compare_at_price_cents: number | null;
+    nota_calce: string | null;
+    activo: boolean;
+    destacado: boolean;
+    brands: { id: string; slug: string; nombre: string };
+    product_images: Array<{ id: string; url: string; alt: string; orden: number; es_principal: boolean }>;
+    variants: Array<{ id: string; size_us: number; size_eu: number | null; size_cm: number | null; stock: number; sku: string; activo: boolean }>;
+  };
+
+  const f = data as unknown as FilaDetalle;
+
+  return {
+    id: f.id,
+    slug: f.slug,
+    brandId: f.brands.id,
+    brandSlug: f.brands.slug,
+    brandNombre: f.brands.nombre,
+    modelo: f.modelo,
+    colorway: f.colorway,
+    silueta: f.silueta,
+    descripcion: f.descripcion,
+    condicion: f.condicion,
+    costCents: f.cost_cents,
+    priceCents: f.price_cents,
+    compareAtPriceCents: f.compare_at_price_cents,
+    notaCalce: f.nota_calce,
+    activo: f.activo,
+    destacado: f.destacado,
+    images: (f.product_images ?? [])
+      .map((img) => ({
+        id: img.id,
+        url: img.url,
+        alt: img.alt,
+        orden: img.orden,
+        esPrincipal: img.es_principal,
+      }))
+      .sort((a, b) => {
+        if (a.esPrincipal !== b.esPrincipal) return a.esPrincipal ? -1 : 1;
+        return a.orden - b.orden;
+      }),
+    variantes: (f.variants ?? [])
+      .map((v) => ({
+        id: v.id,
+        sizeUs: Number(v.size_us),
+        sizeEu: v.size_eu === null ? null : Number(v.size_eu),
+        sizeCm: v.size_cm === null ? null : Number(v.size_cm),
+        stock: v.stock,
+        sku: v.sku,
+        activo: v.activo,
+      }))
+      .sort((a, b) => a.sizeUs - b.sizeUs),
+  };
+}
+
 export type EsperaAdmin = {
   id: string;
   telefono: string;
@@ -504,4 +625,24 @@ export async function listarListaEspera(): Promise<EsperaAdmin[]> {
       stockActual: f.variants.stock,
     }))
     .sort((a, b) => b.stockActual - a.stockActual);
+}
+
+/**
+ * Cuenta los productos activos cuyas variantes activas tienen stock = 0.
+ *
+ * Para second hand son los "muertos vivientes": aparecen en el catálogo como
+ * agotados pero no tienen posibilidad de reposición. Lo habitual es que ya se
+ * vendieron y el comerciante olvidó desactivarlos.
+ */
+export async function obtenerProductosSinStock(): Promise<number> {
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
+    .from("products")
+    .select("id, variants!inner(stock, activo)")
+    .eq("activo", true)
+    .eq("variants.activo", true);
+  if (error !== null || data === null) return 0;
+  return (data as unknown as Array<{ id: string; variants: Array<{ stock: number }> }>).filter(
+    (p) => p.variants.every((v) => v.stock === 0),
+  ).length;
 }

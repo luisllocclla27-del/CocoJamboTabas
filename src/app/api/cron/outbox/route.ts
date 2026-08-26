@@ -72,7 +72,27 @@ export async function GET(request: NextRequest) {
     const recuperados = await recuperarAtascados();
     const resumen = await procesarOutbox();
 
-    return NextResponse.json({ ok: true, recuperados, ...resumen });
+    // Limpieza de reservas vencidas: unifica las dos tareas de fondo en una sola ruta
+    // para que cualquier llamada (Vercel cron, Supabase pg_cron o webhook externo)
+    // mantenga el inventario libre de carritos abandonados sin coste extra.
+    let reservasExpiradas = 0;
+    try {
+      const { createAdminClient } = await import("@/lib/supabase/client");
+      const supabase = createAdminClient();
+      const { data, error } = await supabase.rpc("expire_stale_reservations");
+      if (error === null && typeof data === "number") {
+        reservasExpiradas = data;
+      }
+    } catch (e) {
+      console.warn("[cron/outbox] no se pudieron expirar reservas:", e);
+    }
+
+    return NextResponse.json({
+      ok: true,
+      recuperados,
+      reservasExpiradas,
+      ...resumen,
+    });
   } catch (error) {
     // 500 con motivo, sin traza: el cron necesita saber que falló para reintentar,
     // pero el detalle interno se queda en el log del servidor.

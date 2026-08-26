@@ -6,10 +6,12 @@ import { useRouter } from "next/navigation";
 import { crearProducto } from "@/lib/admin/products";
 import {
   CONDICIONES,
+  DESCRIPCION_CONDICION,
   ETIQUETA_CONDICION,
   MAX_FOTOS,
   TALLAS_DISPONIBLES,
 } from "@/lib/admin/products-config";
+import { optimizarImagenParaSubida } from "@/lib/images/client-compress";
 
 /**
  * Formulario de alta de producto.
@@ -46,6 +48,7 @@ export function FormularioAlta({ marcas }: { marcas: Marca[] }) {
   const [precio, setPrecio] = useState("");
   const [costo, setCosto] = useState("");
   const [fotos, setFotos] = useState<File[]>([]);
+  const [condicionSeleccionada, setCondicionSeleccionada] = useState<(typeof CONDICIONES)[number]>("nuevo_en_caja");
   const [tallas, setTallas] = useState<Talla[]>(
     TALLAS_DISPONIBLES.map((sizeUs) => ({ sizeUs, stock: "1", marcada: false })),
   );
@@ -76,15 +79,22 @@ export function FormularioAlta({ marcas }: { marcas: Marca[] }) {
     );
   }
 
-  function alElegirFotos(event: React.ChangeEvent<HTMLInputElement>) {
+  async function alElegirFotos(event: React.ChangeEvent<HTMLInputElement>) {
     const elegidas = Array.from(event.target.files ?? []);
     setError(null);
+    const acotadas = elegidas.slice(0, MAX_FOTOS);
     if (elegidas.length > MAX_FOTOS) {
       setError(`Máximo ${MAX_FOTOS} fotos por producto.`);
-      setFotos(elegidas.slice(0, MAX_FOTOS));
-      return;
     }
-    setFotos(elegidas);
+
+    try {
+      const optimizadas = await Promise.all(
+        acotadas.map((archivo) => optimizarImagenParaSubida(archivo)),
+      );
+      setFotos(optimizadas);
+    } catch {
+      setFotos(acotadas);
+    }
   }
 
   async function alEnviar(event: React.FormEvent<HTMLFormElement>) {
@@ -97,6 +107,12 @@ export function FormularioAlta({ marcas }: { marcas: Marca[] }) {
     }
 
     const datos = new FormData(event.currentTarget);
+    // Asegurar que viajen las fotos optimizadas y no los archivos crudos del input
+    datos.delete("fotos");
+    for (const foto of fotos) {
+      datos.append("fotos", foto);
+    }
+
     // Las variantes viajan como JSON en un solo campo: reconstruir un array desde
     // `variantes[0].sizeUs` obliga a adivinar índices y un hueco produce un
     // `undefined` en medio que Zod reporta con un mensaje incomprensible.
@@ -195,7 +211,8 @@ export function FormularioAlta({ marcas }: { marcas: Marca[] }) {
             <select
               id="condicion"
               name="condicion"
-              defaultValue="nuevo_en_caja"
+              value={condicionSeleccionada}
+              onChange={(e) => setCondicionSeleccionada(e.target.value as (typeof CONDICIONES)[number])}
               className="mt-1 w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-papel)] px-3 py-2.5 text-sm"
             >
               {CONDICIONES.map((c) => (
@@ -204,6 +221,9 @@ export function FormularioAlta({ marcas }: { marcas: Marca[] }) {
                 </option>
               ))}
             </select>
+            <p className="mt-1 text-xs text-[var(--color-gris)]">
+              {DESCRIPCION_CONDICION[condicionSeleccionada]}
+            </p>
           </div>
           <Campo id="modelo" etiqueta="Modelo" requerido placeholder="Chuck 70 High" />
           <Campo id="colorway" etiqueta="Color" requerido placeholder="Negro / blanco" />

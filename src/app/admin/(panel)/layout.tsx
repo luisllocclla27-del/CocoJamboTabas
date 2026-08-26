@@ -3,6 +3,8 @@ import { redirect } from "next/navigation";
 import { isSupabaseConfigured } from "@/lib/env";
 import { createServerClient, isAdmin } from "@/lib/supabase/server";
 import { cerrarSesion } from "@/lib/admin/auth";
+import { obtenerResumen } from "@/lib/admin/queries";
+import { NavegacionPanelInteractiva } from "./navegacion";
 
 /**
  * Layout del panel.
@@ -17,6 +19,7 @@ import { cerrarSesion } from "@/lib/admin/auth";
  * Incluso si este layout tuviera un bug, un usuario sin permisos no podría leer un
  * voucher ni un teléfono, porque `is_admin()` se evalúa dentro de la base.
  */
+
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   if (!isSupabaseConfigured()) redirect("/");
 
@@ -29,54 +32,53 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
   if (!(await isAdmin())) return <SinPermisos email={user.email ?? ""} />;
 
+  let metricas = undefined;
+  try {
+    const resumen = await obtenerResumen();
+    metricas = {
+      porVerificar: resumen.porVerificar,
+      avisosPendientes: resumen.avisosPendientes,
+      enEspera: resumen.enEspera,
+    };
+  } catch {
+    // Si falla el resumen (ej: migraciones pendientes), el panel debe seguir cargando
+  }
+
   return (
     <div className="mx-auto max-w-6xl px-4 py-6">
       <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[var(--color-borde)] pb-4">
-        <div>
-          <p className="titular text-xl">Panel</p>
-          <p className="text-xs text-[var(--color-gris)]">{user.email}</p>
+        <div className="flex items-center gap-3">
+          <Link href="/" className="titular text-xl tracking-tight text-[var(--color-tinta)] hover:opacity-80">
+            COCO<span className="text-[var(--color-acento-oscuro)]">JAMBO</span>
+          </Link>
+          <span className="text-xs font-bold uppercase tracking-wider bg-[var(--color-humo)] px-2 py-0.5 rounded text-[var(--color-gris)]">
+            Admin
+          </span>
+          <span className="text-xs text-[var(--color-gris)] hidden sm:inline">{user.email}</span>
         </div>
-        <form action={cerrarSesion}>
-          <button
-            type="submit"
-            className="rounded-full border border-[var(--color-borde)] px-4 py-1.5 text-sm font-medium hover:border-[var(--color-tinta)]"
+        <div className="flex items-center gap-3">
+          <Link
+            href="/"
+            target="_blank"
+            className="text-xs font-semibold text-[var(--color-gris)] hover:text-[var(--color-tinta)]"
           >
-            Cerrar sesión
-          </button>
-        </form>
+            Ir a la tienda ↗
+          </Link>
+          <form action={cerrarSesion}>
+            <button
+              type="submit"
+              className="rounded-full border border-[var(--color-borde)] px-4 py-1.5 text-xs font-semibold hover:border-[var(--color-tinta)] cursor-pointer"
+            >
+              Cerrar sesión
+            </button>
+          </form>
+        </div>
       </div>
 
-      <NavegacionPanel />
+      <NavegacionPanelInteractiva metricas={metricas} />
 
       <div className="mt-6">{children}</div>
     </div>
-  );
-}
-
-function NavegacionPanel() {
-  const enlaces = [
-    { href: "/admin", texto: "Resumen" },
-    { href: "/admin/pagos", texto: "Verificar pagos" },
-    { href: "/admin/pedidos", texto: "Pedidos" },
-    { href: "/admin/productos", texto: "Productos" },
-    { href: "/admin/avisos", texto: "Avisos" },
-    { href: "/admin/espera", texto: "Lista de espera" },
-  ];
-  return (
-    <nav aria-label="Secciones del panel" className="mt-4 overflow-x-auto">
-      <ul className="flex gap-1">
-        {enlaces.map((enlace) => (
-          <li key={enlace.href}>
-            <Link
-              href={enlace.href}
-              className="block whitespace-nowrap rounded-full px-4 py-2 text-sm font-medium hover:bg-[var(--color-humo)]"
-            >
-              {enlace.texto}
-            </Link>
-          </li>
-        ))}
-      </ul>
-    </nav>
   );
 }
 

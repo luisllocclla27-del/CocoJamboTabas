@@ -37,9 +37,12 @@ import { slugDisponible, slugProducto, skuPropuesto } from "@/lib/catalog/slug";
 import { fromUS } from "@/lib/sizes";
 import {
   altaProductoSchema,
+  edicionProductoSchema,
+  nuevaVarianteSchema,
   MAX_BYTES_FOTO,
   MAX_FOTOS,
   type ResultadoAlta,
+  type ResultadoEdicion,
 } from "./products-config";
 
 /** Tipos que acepta el bucket `productos`. HEIC queda fuera: no lo pinta el navegador. */
@@ -386,4 +389,455 @@ async function actorAdmin(): Promise<string> {
     data: { user },
   } = await supabase.auth.getUser();
   return user === null ? "admin:desconocido" : `admin:${user.id}`;
+}
+
+/**
+ * Actualiza los datos principales de un producto existente.
+ */
+export async function actualizarProducto(
+  productId: string,
+  datos: FormData,
+): Promise<ResultadoEdicion> {
+  if (!(await isAdmin())) return { ok: false, error: "No tienes permiso para esta acción." };
+
+  const parsed = edicionProductoSchema.safeParse(leerEntradaEdicion(datos));
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    return {
+      ok: false,
+      error: issue?.message ?? "Revisa los datos del formulario.",
+      ...(issue !== undefined ? { campo: issue.path.join(".") } : {}),
+    };
+  }
+  const entrada = parsed.data;
+  const supabase = createAdminClient();
+
+  const { data: marca, error: errorMarca } = await supabase
+    .from("brands")
+    .select("id, nombre")
+    .eq("slug", entrada.brandSlug)
+    .maybeSingle();
+
+  if (errorMarca !== null || marca === null) {
+    return { ok: false, error: "Esa marca no existe.", campo: "brandSlug" };
+  }
+
+  const { data: productoActual, error: errorProd } = await supabase
+    .from("products")
+    .select("id, slug")
+    .eq("id", productId)
+    .maybeSingle();
+
+  if (errorProd !== null || productoActual === null) {
+    return { ok: false, error: "El producto no existe." };
+  }
+
+  const { error: errorUpdate } = await supabase
+    .from("products")
+    .update({
+      brand_id: marca.id,
+      modelo: entrada.modelo,
+      colorway: entrada.colorway,
+      silueta: entrada.silueta ?? null,
+      descripcion: entrada.descripcion ?? null,
+      condicion: entrada.condicion,
+      cost_cents: entrada.costCents,
+      price_cents: entrada.priceCents,
+      compare_at_price_cents: entrada.compareAtPriceCents ?? null,
+      nota_calce: entrada.notaCalce ?? null,
+      activo: entrada.activo,
+      destacado: entrada.destacado,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", productId);
+
+  if (errorUpdate !== null) {
+    return { ok: false, error: "No pudimos guardar los cambios del producto." };
+  }
+
+  revalidatePath("/admin/productos");
+  revalidatePath(`/admin/productos/${productId}/editar`);
+  revalidatePath(`/producto/${productoActual.slug}`);
+  revalidatePath("/catalogo");
+  revalidatePath("/admin");
+
+  return { ok: true, slug: productoActual.slug };
+}
+
+function leerEntradaEdicion(datos: FormData): Record<string, unknown> {
+  const texto = (clave: string): string | undefined => {
+    const valor = datos.get(clave);
+    if (typeof valor !== "string") return undefined;
+    const limpio = valor.trim();
+    return limpio === "" ? undefined : limpio;
+  };
+
+  return {
+    brandSlug: texto("brandSlug") ?? "",
+    modelo: texto("modelo") ?? "",
+    colorway: texto("colorway") ?? "",
+    silueta: texto("silueta"),
+    descripcion: texto("descripcion"),
+    condicion: texto("condicion") ?? "nuevo_en_caja",
+    priceCents: texto("precio") ?? "",
+    costCents: texto("costo") ?? "",
+    compareAtPriceCents: texto("precioTachado"),
+    notaCalce: texto("notaCalce"),
+    activo: datos.get("activo") === "true",
+    destacado: datos.get("destacado") === "true",
+  };
+}
+
+/**
+ * Extrae la ruta interna en Storage a partir de la URL pública de una foto.
+ */
+function rutaStorageDesdeUrl(url: string): string | null {
+  const match = url.match(/\/storage\/v1\/object\/public\/productos\/(.+)$/);
+  if (match && match[1]) {
+    return decodeURIComponent(match[1]);
+  }
+  return null;
+}
+
+/**
+ * Sube fotos adicionales a un producto existente.
+ */
+export async function subirFotosAdicionales(
+  productId: string,
+  slug: string,
+  datos: FormData,
+): Promise<{ ok: boolean; error?: string; fotosSubidas?: number }> {
+  if (!(await isAdmin())) return { ok: false, error: "No tienes permiso para esta acción." };
+
+  const fotos = await leerFotos(datos);
+  if ("error" in fotos) return { ok: false, error: fotos.error };
+  if (fotos.archivos.length === 0) return { ok: false, error: "No se seleccionó ninguna foto." };
+
+  const supabase = createAdminClient();
+
+  const { data: existentes } = await supabase
+    .from("product_images")
+    .select("id, orden, es_principal")
+    .eq("product_id", productId)
+    .order("orden", { ascending: false });
+
+  const totalActual = existentes?.length ?? 0;
+  if (totalActual + fotos.archivos.length > MAX_FOTOS) {
+    return {
+      ok: false,
+      error: `El producto ya tiene ${totalActual} foto(s). El límite máximo es ${MAX_FOTOS}.`,
+    };
+  }
+
+  const ordenInicio = totalActual > 0 ? (existentes![0].orden + 1) : 0;
+  const tienePrincipal = existentes?.some((f) => f.es_principal) ?? false;
+
+  let correctas = 0;
+  let fallidas = 0;
+
+  for (const [indice, foto] of fotos.archivos.entries()) {
+    const nombre = `${crypto.randomUUID()}.${extensionDeTipo(foto.tipo)}`;
+    const ruta = `${slug}/${nombre}`;
+
+    const { error: errorSubida } = await supabase.storage
+      .from("productos")
+      .upload(ruta, foto.bytes, { contentType: foto.tipo, upsert: false });
+
+    if (errorSubida !== null) {
+      fallidas++;
+      continue;
+    }
+
+    const { data: publica } = supabase.storage.from("productos").getPublicUrl(ruta);
+    const esPrincipal = !tienePrincipal && correctas === 0;
+
+    const { error: errorFila } = await supabase.from("product_images").insert({
+      product_id: productId,
+      url: publica.publicUrl,
+      alt: foto.alt,
+      orden: ordenInicio + indice,
+      es_principal: esPrincipal,
+    });
+
+    if (errorFila !== null) {
+      await supabase.storage.from("productos").remove([ruta]);
+      fallidas++;
+      continue;
+    }
+
+    correctas++;
+  }
+
+  revalidatePath("/admin/productos");
+  revalidatePath(`/admin/productos/${productId}/editar`);
+  revalidatePath(`/producto/${slug}`);
+  revalidatePath("/catalogo");
+
+  if (fallidas > 0) {
+    return {
+      ok: false,
+      error: `${fallidas} foto(s) no se pudieron subir.`,
+      fotosSubidas: correctas,
+    };
+  }
+
+  return { ok: true, fotosSubidas: correctas };
+}
+
+/**
+ * Elimina una foto de producto tanto de la base de datos como de Supabase Storage.
+ */
+export async function eliminarFotoProducto(
+  fotoId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!(await isAdmin())) return { ok: false, error: "No tienes permiso para esta acción." };
+  const supabase = createAdminClient();
+
+  const { data: foto, error: errorFoto } = await supabase
+    .from("product_images")
+    .select("id, product_id, url, es_principal")
+    .eq("id", fotoId)
+    .maybeSingle();
+
+  if (errorFoto !== null || foto === null) {
+    return { ok: false, error: "Foto no encontrada." };
+  }
+
+  // Borrar de storage
+  const ruta = rutaStorageDesdeUrl(foto.url);
+  if (ruta) {
+    await supabase.storage.from("productos").remove([ruta]);
+  }
+
+  // Borrar de base de datos
+  const { error: errorBorrado } = await supabase.from("product_images").delete().eq("id", fotoId);
+  if (errorBorrado !== null) {
+    return { ok: false, error: "No se pudo eliminar el registro de la foto." };
+  }
+
+  // Si era la principal, reasignar otra
+  if (foto.es_principal) {
+    const { data: restantes } = await supabase
+      .from("product_images")
+      .select("id")
+      .eq("product_id", foto.product_id)
+      .order("orden", { ascending: true })
+      .limit(1);
+
+    if (restantes && restantes.length > 0) {
+      await supabase
+        .from("product_images")
+        .update({ es_principal: true })
+        .eq("id", restantes[0].id);
+    }
+  }
+
+  revalidatePath("/admin/productos");
+  revalidatePath(`/admin/productos/${foto.product_id}/editar`);
+  revalidatePath("/catalogo");
+  return { ok: true };
+}
+
+/**
+ * Establece una imagen como la principal del producto.
+ */
+export async function establecerFotoPrincipal(
+  productId: string,
+  fotoId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!(await isAdmin())) return { ok: false, error: "No tienes permiso para esta acción." };
+  const supabase = createAdminClient();
+
+  // Primero desmarcar la principal anterior
+  await supabase
+    .from("product_images")
+    .update({ es_principal: false })
+    .eq("product_id", productId);
+
+  // Asignar nueva principal
+  const { error } = await supabase
+    .from("product_images")
+    .update({ es_principal: true })
+    .eq("id", fotoId);
+
+  if (error !== null) {
+    return { ok: false, error: "No se pudo actualizar la foto principal." };
+  }
+
+  revalidatePath("/admin/productos");
+  revalidatePath(`/admin/productos/${productId}/editar`);
+  revalidatePath("/catalogo");
+  return { ok: true };
+}
+
+/**
+ * Agrega una nueva talla a un producto ya creado.
+ */
+export async function agregarVarianteAProducto(
+  productId: string,
+  sizeUs: number,
+  stock: number,
+  sku?: string,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!(await isAdmin())) return { ok: false, error: "No tienes permiso para esta acción." };
+
+  const parsed = nuevaVarianteSchema.safeParse({ productId, sizeUs, stock, sku });
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Datos de talla inválidos." };
+  }
+
+  const supabase = createAdminClient();
+
+  // Verificar si ya existe esa talla
+  const { data: existente } = await supabase
+    .from("variants")
+    .select("id, activo")
+    .eq("product_id", productId)
+    .eq("size_us", sizeUs)
+    .maybeSingle();
+
+  if (existente !== null) {
+    if (!existente.activo) {
+      await supabase.from("variants").update({ activo: true, stock }).eq("id", existente.id);
+      revalidatePath("/admin/productos");
+      revalidatePath(`/admin/productos/${productId}/editar`);
+      return { ok: true };
+    }
+    return { ok: false, error: `La talla US ${sizeUs} ya existe en este producto.` };
+  }
+
+  const { data: producto } = await supabase
+    .from("products")
+    .select("modelo, colorway, brands!inner(nombre)")
+    .eq("id", productId)
+    .single();
+
+  const equivalencia = fromUS(sizeUs);
+  const marcaNombre =
+    (producto as unknown as { brands: { nombre: string } })?.brands?.nombre ?? "CocoJambo";
+
+  const skuFinal =
+    sku && sku.trim() !== ""
+      ? sku.trim()
+      : skuPropuesto({
+          marca: marcaNombre,
+          modelo: producto?.modelo ?? "",
+          colorway: producto?.colorway ?? "",
+          sizeUs,
+        });
+
+  const { data: varianteCreada, error } = await supabase
+    .from("variants")
+    .insert({
+      product_id: productId,
+      size_us: sizeUs,
+      size_eu: equivalencia?.eu ?? null,
+      size_cm: equivalencia?.cm ?? null,
+      sku: skuFinal,
+      stock,
+      activo: true,
+    })
+    .select("id")
+    .single();
+
+  if (error !== null) {
+    return { ok: false, error: "No se pudo agregar la talla. Revisa si el SKU ya existe." };
+  }
+
+  if (stock > 0 && varianteCreada) {
+    const actor = await actorAdmin();
+    await supabase.from("inventory_moves").insert({
+      variant_id: varianteCreada.id,
+      delta: stock,
+      stock_antes: 0,
+      stock_despues: stock,
+      motivo: "alta_producto",
+      actor,
+      nota: "Talla agregada en edición de producto",
+    });
+  }
+
+  revalidatePath("/admin/productos");
+  revalidatePath(`/admin/productos/${productId}/editar`);
+  revalidatePath("/catalogo");
+  return { ok: true };
+}
+
+/**
+ * Desactiva o elimina una talla de un producto.
+ */
+export async function eliminarVarianteDeProducto(
+  variantId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!(await isAdmin())) return { ok: false, error: "No tienes permiso para esta acción." };
+  const supabase = createAdminClient();
+
+  // Comprobar si tiene pedidos
+  const { count: ventasCount } = await supabase
+    .from("order_items")
+    .select("id", { count: "exact", head: true })
+    .eq("variant_id", variantId);
+
+  if ((ventasCount ?? 0) > 0) {
+    // Desactivar para no romper integridad referencial de auditoría
+    await supabase.from("variants").update({ activo: false, stock: 0 }).eq("id", variantId);
+  } else {
+    await supabase.from("variants").delete().eq("id", variantId);
+  }
+
+  revalidatePath("/admin/productos");
+  revalidatePath("/catalogo");
+  return { ok: true };
+}
+
+/**
+ * Elimina un producto o lo desactiva si tiene ventas históricas asociadas.
+ */
+export async function eliminarProducto(
+  productId: string,
+): Promise<{ ok: boolean; error?: string; archivado?: boolean }> {
+  if (!(await isAdmin())) return { ok: false, error: "No tienes permiso para esta acción." };
+  const supabase = createAdminClient();
+
+  const { count: ventasCount } = await supabase
+    .from("order_items")
+    .select("id", { count: "exact", head: true })
+    .eq("product_id", productId);
+
+  if ((ventasCount ?? 0) > 0) {
+    await supabase.from("products").update({ activo: false }).eq("id", productId);
+    revalidatePath("/admin/productos");
+    revalidatePath("/catalogo");
+    return {
+      ok: true,
+      archivado: true,
+      error:
+        "El producto tiene ventas históricas registradas, por lo que fue desactivado del catálogo en lugar de borrado para mantener la contabilidad intacta.",
+    };
+  }
+
+  // Eliminar fotos de storage
+  const { data: fotos } = await supabase
+    .from("product_images")
+    .select("url")
+    .eq("product_id", productId);
+
+  if (fotos && fotos.length > 0) {
+    const rutas = fotos
+      .map((f) => rutaStorageDesdeUrl(f.url))
+      .filter((r): r is string => r !== null);
+    if (rutas.length > 0) {
+      await supabase.storage.from("productos").remove(rutas);
+    }
+  }
+
+  const { error } = await supabase.from("products").delete().eq("id", productId);
+  if (error !== null) {
+    return { ok: false, error: `No se pudo eliminar el producto: ${error.message}` };
+  }
+
+  revalidatePath("/admin/productos");
+  revalidatePath("/catalogo");
+  revalidatePath("/admin");
+  return { ok: true };
 }

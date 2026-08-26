@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { Anton, Inter } from "next/font/google";
 import Link from "next/link";
+import { BotonWhatsAppFlotante } from "@/components/boton-whatsapp-flotante";
+import { Encabezado } from "@/components/encabezado";
 import "./globals.css";
 
 /**
@@ -29,11 +31,11 @@ const inter = Inter({
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000"),
   title: {
-    default: "Coco Jambo · Zapatillas urbanas originales en Perú",
+    default: "Coco Jambo · Zapatillas y ropa urbana second hand en Perú",
     template: "%s · Coco Jambo",
   },
   description:
-    "Converse, Vans, New Balance y Adidas originales. Envíos a todo el Perú, pago con Yape y stock real por talla.",
+    "Zapatillas originales y ropa urbana second hand en Perú. Converse, Vans, New Balance, poleras y vintage. Envíos a todo el país y pago con Yape.",
   openGraph: {
     type: "website",
     locale: "es_PE",
@@ -46,12 +48,8 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    // `lang="es-PE"` no es cosmético: define la pronunciación del lector de
-    // pantalla y la separación de sílabas.
     <html lang="es-PE">
       <body className={`${anton.variable} ${inter.variable} antialiased`}>
-        {/* Salto al contenido: lo primero que encuentra quien navega con teclado,
-            para no recorrer todo el menú en cada página. */}
         <a
           href="#contenido"
           className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded focus:bg-[var(--color-acento)] focus:px-4 focus:py-2 focus:font-semibold focus:text-[var(--color-tinta)]"
@@ -61,42 +59,9 @@ export default function RootLayout({
         <Encabezado />
         <main id="contenido">{children}</main>
         <PieDePagina />
+        <BotonWhatsAppFlotante numeroWhatsapp={process.env.WHATSAPP_NUMERO ?? "935502420"} />
       </body>
     </html>
-  );
-}
-
-function Encabezado() {
-  return (
-    <header className="sticky top-0 z-40 border-b border-[var(--color-borde)] bg-[var(--color-papel)]/95 backdrop-blur">
-      <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-4">
-        <Link href="/" className="titular text-2xl tracking-tight">
-          COCO<span className="text-[var(--color-acento-oscuro)]">JAMBO</span>
-        </Link>
-
-        <nav aria-label="Navegación principal" className="hidden gap-6 text-sm font-medium sm:flex">
-          <Link href="/catalogo" className="hover:text-[var(--color-gris)]">
-            Catálogo
-          </Link>
-          <Link href="/catalogo?marca=converse" className="hover:text-[var(--color-gris)]">
-            Converse
-          </Link>
-          <Link href="/catalogo?marca=vans" className="hover:text-[var(--color-gris)]">
-            Vans
-          </Link>
-          <Link href="/seguimiento" className="hover:text-[var(--color-gris)]">
-            Seguir pedido
-          </Link>
-        </nav>
-
-        <Link
-          href="/carrito"
-          className="rounded-full bg-[var(--color-tinta)] px-4 py-2 text-sm font-semibold text-[var(--color-papel)] transition hover:bg-[var(--color-tinta-suave)]"
-        >
-          Carrito
-        </Link>
-      </div>
-    </header>
   );
 }
 
@@ -107,8 +72,27 @@ function PieDePagina() {
         <div>
           <p className="titular text-xl">COCO JAMBO</p>
           <p className="mt-2 text-sm text-[var(--color-gris)]">
-            Zapatillas urbanas originales. Envíos a todo el Perú.
+            Zapatillas originales y ropa urbana second hand. Piezas únicas con fotos 100% reales.
           </p>
+          <div className="mt-4 flex flex-col gap-1.5 text-xs text-[var(--color-gris)]">
+            <p className="font-semibold text-[var(--color-tinta)]">Atención directa:</p>
+            <a
+              href="https://wa.me/51935502420?text=Hola%20Coco%20Jambo%2C%20tengo%20una%20consulta"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[#128C7E] font-bold hover:underline"
+            >
+              📱 WhatsApp: 935 502 420
+            </a>
+            <a
+              href="https://chat.whatsapp.com/ESkzHNItHLzIHzl07psBWj"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-medium text-[var(--color-tinta)] hover:underline"
+            >
+              💬 Grupo de WhatsApp (Ingresos diarios) ↗
+            </a>
+          </div>
         </div>
         <nav aria-label="Enlaces del pie">
           <h2 className="text-sm font-semibold uppercase tracking-wide">Tienda</h2>
@@ -116,6 +100,16 @@ function PieDePagina() {
             <li>
               <Link href="/catalogo" className="hover:text-[var(--color-tinta)]">
                 Ver todo el catálogo
+              </Link>
+            </li>
+            <li>
+              <Link href="/catalogo?q=zapatillas" className="hover:text-[var(--color-tinta)]">
+                Zapatillas
+              </Link>
+            </li>
+            <li>
+              <Link href="/catalogo?q=ropa" className="hover:text-[var(--color-tinta)]">
+                Ropa second hand
               </Link>
             </li>
             <li>
@@ -133,13 +127,13 @@ function PieDePagina() {
         <div>
           <h2 className="text-sm font-semibold uppercase tracking-wide">Cómo comprar</h2>
           <p className="mt-3 text-sm text-[var(--color-gris)]">
-            Elige tu talla, paga con Yape y validamos tu comprobante. Te avisamos por WhatsApp en
-            cuanto tu pedido sale.
+            Elige tu prenda o par único, paga con Yape y validamos tu comprobante. Te avisamos por WhatsApp en
+            cuanto tu paquete sale por Olva o Shalom.
           </p>
         </div>
       </div>
       <div className="border-t border-[var(--color-borde)] px-4 py-6 text-center text-xs text-[var(--color-gris)]">
-        Proyecto de demostración. Los productos y precios son datos de ejemplo.
+        © 2025 Coco Jambo · Moda urbana y second hand en Perú.
       </div>
     </footer>
   );

@@ -6,6 +6,7 @@ import Link from "next/link";
 import { formatSoles } from "@/lib/money";
 import type { ProductoAdmin } from "@/lib/admin/queries";
 import { ajustarStock, cambiarVisibilidad } from "@/lib/admin/inventory";
+import { BotonCompartirRedes } from "./boton-compartir";
 
 /**
  * Fila de producto con edición de stock por talla.
@@ -74,20 +75,44 @@ export function FilaProducto({
         </div>
       </div>
 
-      <div className="mt-4 flex items-center gap-3">
-        <button
-          type="button"
-          onClick={alternarVisibilidad}
-          disabled={cambiando}
-          className="rounded-full border border-[var(--color-borde)] px-4 py-1.5 text-sm hover:border-[var(--color-tinta)] disabled:opacity-50"
-        >
-          {producto.activo ? "Ocultar de la tienda" : "Mostrar en la tienda"}
-        </button>
-        {!producto.activo && (
-          <span className="text-xs text-[var(--color-gris)]">
-            Oculto: no aparece en el catálogo.
-          </span>
-        )}
+      <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-[var(--color-borde)] pt-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href={`/admin/productos/${producto.id}/editar`}
+            className="inline-flex items-center gap-1 rounded-full bg-[var(--color-tinta)] px-4 py-1.5 text-xs font-bold text-[var(--color-papel)] hover:bg-[var(--color-tinta-suave)]"
+          >
+            ✏️ Editar datos y fotos
+          </Link>
+          <button
+            type="button"
+            onClick={alternarVisibilidad}
+            disabled={cambiando}
+            className="rounded-full border border-[var(--color-borde)] px-3 py-1.5 text-xs font-semibold hover:border-[var(--color-tinta)] disabled:opacity-50"
+          >
+            {producto.activo ? "Ocultar de tienda" : "Mostrar en tienda"}
+          </button>
+          {!producto.activo && (
+            <span className="text-xs font-medium text-[var(--color-aviso)] bg-[var(--color-aviso)]/10 px-2 py-0.5 rounded">
+              Oculto
+            </span>
+          )}
+          {producto.destacado && (
+            <span className="text-xs font-bold text-[var(--color-tinta)] bg-[var(--color-acento)] px-2 py-0.5 rounded">
+              ★ Portada
+            </span>
+          )}
+        </div>
+
+        <BotonCompartirRedes
+          producto={{
+            marca: producto.marca,
+            modelo: producto.modelo,
+            colorway: producto.colorway,
+            priceCents: producto.priceCents,
+            tallas: producto.variantes.map((v) => ({ sizeUs: v.sizeUs, stock: v.stock })),
+            slug: producto.slug,
+          }}
+        />
       </div>
     </article>
   );

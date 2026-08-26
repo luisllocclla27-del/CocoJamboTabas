@@ -264,13 +264,15 @@ minutos. Es el guión con el que conviene enseñarlo:
 
 ## Estado y límites conocidos
 
-**Funciona:** catálogo con filtros por talla disponible, ficha de producto, lista de
+**Funciona:** catálogo con filtros por talla disponible, ficha de producto con compartición a WhatsApp, lista de
 espera, carrito, checkout con reservas, pago por Yape con céntimos únicos, subida de
 comprobante, seguimiento sin cuenta, panel con cola de verificación, gestión de pedidos,
-alta de productos con fotos, ajuste de stock con historial, cola de avisos de WhatsApp y
-lista de espera.
+alta y **edición completa de productos con gestión de fotos (portada, eliminación y adición)**,
+compresión automática de fotos en navegador (soporte móvil iPhone/Android),
+generador de textos de venta rápida para WhatsApp e Instagram, ajuste de stock con historial,
+autolimpieza oportunista de reservas y cola de avisos de WhatsApp.
 
-**Falta, y por qué:**
+**Límites conocidos:**
 
 - **pHash y OCR sin implementar.** Necesitan `sharp` y un motor OCR. Los módulos definen
   la interfaz y están testeados, pero no se finge validar lo que no se valida: las señales
@@ -284,8 +286,6 @@ lista de espera.
   sistema redacta el mensaje y lo deja en `/admin/avisos` con su enlace `wa.me`; el
   comerciante lo manda con un clic y registra que lo hizo. Cuando haya proveedor, se
   implementa la interfaz `Notificador` y el worker no cambia.
-- **Sin edición de productos ya creados.** Se pueden crear, ocultar y ajustar su stock,
-  pero corregir un precio o añadir una foto a un producto existente sigue siendo SQL.
 - **El umbral del pHash (10 sobre 64) no está calibrado con vouchers reales.** Todos los
   vouchers de Yape comparten plantilla, así que la distancia entre dos legítimos distintos
   es menor que entre dos fotos cualesquiera. Hay que recalibrarlo con un lote real antes de

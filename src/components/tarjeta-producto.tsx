@@ -60,6 +60,11 @@ export function TarjetaProductoCard({ producto }: { producto: TarjetaProducto })
               Oferta
             </span>
           )}
+          {!agotado && !enOferta && producto.tallasDisponibles.length === 1 && (
+            <span className="absolute left-3 top-3 rounded-full bg-[var(--color-aviso)] px-3 py-1 text-xs font-bold uppercase text-white shadow-xs">
+              ⚡ Último
+            </span>
+          )}
         </div>
 
         <div className="mt-3">

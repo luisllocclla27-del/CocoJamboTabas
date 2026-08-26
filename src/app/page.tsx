@@ -61,18 +61,17 @@ function Portada() {
     <section className="border-b border-[var(--color-borde)] bg-[var(--color-tinta)] text-[var(--color-papel)]">
       <div className="mx-auto max-w-6xl px-4 py-16 sm:py-24">
         <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[var(--color-acento)]">
-          Originales garantizadas
+          Segunda mano · Originales garantizadas
         </p>
         <h1 className="titular mt-4 text-5xl sm:text-7xl lg:text-8xl">
           Zapatillas
           <br />
-          urbanas
+          y ropa urbana
           <br />
-          <span className="text-[var(--color-acento)]">de verdad</span>
+          <span className="text-[var(--color-acento)]">second hand</span>
         </h1>
         <p className="mt-6 max-w-xl text-lg text-white/80">
-          Converse, Vans, New Balance y Adidas. Stock real por talla, pago con Yape y envíos a todo
-          el Perú.
+          Converse, Vans, New Balance, poleras y prendas vintage únicas. Fotos 100% reales del artículo exacto, pago con Yape y envíos a todo el Perú.
         </p>
         <div className="mt-8 flex flex-wrap gap-3">
           <Link
@@ -81,12 +80,15 @@ function Portada() {
           >
             Ver catálogo
           </Link>
-          <Link
-            href="/seguimiento"
-            className="rounded-full border border-white/30 px-6 py-3 font-semibold transition hover:bg-white/10"
+          <a
+            href="https://chat.whatsapp.com/ESkzHNItHLzIHzl07psBWj"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="rounded-full border border-white/30 px-6 py-3 font-semibold transition hover:bg-white/10 flex items-center gap-2"
           >
-            Seguir mi pedido
-          </Link>
+            <span>Comunidad WhatsApp</span>
+            <span className="text-xs bg-[#25D366] text-white px-2 py-0.5 rounded-full font-bold">Ingresos</span>
+          </a>
         </div>
       </div>
     </section>
@@ -99,9 +101,18 @@ function Portada() {
  */
 function Garantias() {
   const items = [
-    { titulo: "100% originales", texto: "Fotos reales del par y su caja. Nada de réplicas." },
-    { titulo: "Envíos a todo el Perú", texto: "Lima a domicilio y provincia por agencia Shalom." },
-    { titulo: "Paga con Yape", texto: "Validamos tu comprobante y te confirmamos por WhatsApp." },
+    {
+      titulo: "Fotos 100% reales",
+      texto: "Cada foto es del artículo físico exacto que vas a recibir. Nada de fotos genéricas de catálogo.",
+    },
+    {
+      titulo: "Envíos a todo el Perú",
+      texto: "Lima a domicilio y provincia por agencia Shalom o recojo en agencia.",
+    },
+    {
+      titulo: "Paga con Yape",
+      texto: "Validamos tu comprobante al instante y te confirmamos el despacho por WhatsApp.",
+    },
   ];
   return (
     <section aria-label="Garantías" className="border-b border-[var(--color-borde)]">

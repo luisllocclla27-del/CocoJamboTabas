@@ -145,7 +145,7 @@ function Filtros({
           name="q"
           type="search"
           defaultValue={filtros.busqueda ?? ""}
-          placeholder="Buscar: Chuck 70, Old Skool, Samba..."
+          placeholder="Buscar: zapatillas, polera, casaca, Chuck 70, vintage..."
           className="w-full rounded-full border border-[var(--color-borde)] px-4 py-2 text-sm"
         />
         {/* Los filtros activos se conservan al buscar. */}

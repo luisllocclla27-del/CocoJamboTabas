@@ -80,7 +80,9 @@ export async function listarCatalogo(filtros: FiltrosCatalogo = {}): Promise<Tar
     // `or` con `ilike` en vez del índice de texto completo: con este volumen es
     // suficiente y tolera búsquedas parciales como "chuck" o "old sk".
     const patron = `%${filtros.busqueda.trim()}%`;
-    query = query.or(`modelo.ilike.${patron},colorway.ilike.${patron}`);
+    query = query.or(
+      `modelo.ilike.${patron},colorway.ilike.${patron},silueta.ilike.${patron},descripcion.ilike.${patron}`,
+    );
   }
 
   switch (filtros.orden) {
@@ -173,17 +175,60 @@ export async function listarDestacados(limite = 4): Promise<TarjetaProducto[]> {
   return (destacados.length > 0 ? destacados : todos).slice(0, limite);
 }
 
+let ultimaLimpieza = 0;
+const INTERVALO_LIMPIEZA_MS = 60 * 1000; // 1 minuto
+
+/**
+ * Limpieza oportunista de reservas vencidas.
+ * Se ejecuta al vuelo con un intervalo mínimo de 1 minuto para garantizar
+ * que los carritos abandonados liberen el stock de inmediato sin depender
+ * exclusivamente de un cron externo.
+ */
+async function limpiarReservasExpiradasOportunista(): Promise<void> {
+  const ahora = Date.now();
+  if (ahora - ultimaLimpieza < INTERVALO_LIMPIEZA_MS) return;
+  ultimaLimpieza = ahora;
+  try {
+    const { createAdminClient } = await import("./client");
+    const supabase = createAdminClient();
+    await supabase.rpc("expire_stale_reservations");
+  } catch {
+    // Si no está disponible service_role o falla, continúa sin interrumpir la carga
+  }
+}
+
 /**
  * Reservas activas agrupadas por variante.
  *
  * Solo cuenta las que están `activa` y no han expirado, que es la misma condición
- * que usa `available_stock()` en SQL. Si las dos definiciones se separaran, la
- * ficha de producto y el checkout discreparían y el cliente vería aparecer y
- * desaparecer tallas.
+ * que usa `available_stock()` en SQL.
  */
 async function reservasPorVariante(variantIds: string[]): Promise<Map<string, number>> {
   const mapa = new Map<string, number>();
   if (variantIds.length === 0) return mapa;
+
+  // Disparar autolimpieza oportunista en segundo plano
+  void limpiarReservasExpiradasOportunista();
+
+  try {
+    const { createAdminClient } = await import("./client");
+    const supabaseAdmin = createAdminClient();
+    const { data, error } = await supabaseAdmin
+      .from("reservations")
+      .select("variant_id, cantidad")
+      .in("variant_id", variantIds)
+      .eq("status", "activa")
+      .gt("expires_at", new Date().toISOString());
+
+    if (error === null && data !== null) {
+      for (const fila of data) {
+        mapa.set(fila.variant_id, (mapa.get(fila.variant_id) ?? 0) + fila.cantidad);
+      }
+      return mapa;
+    }
+  } catch {
+    // Fallback a cliente de sesión si createAdminClient no está disponible
+  }
 
   const supabase = await createServerClient();
   const { data, error } = await supabase
@@ -193,11 +238,6 @@ async function reservasPorVariante(variantIds: string[]): Promise<Map<string, nu
     .eq("status", "activa")
     .gt("expires_at", new Date().toISOString());
 
-  // Un fallo aquí NO debe tumbar el catálogo: la RLS no expone `reservations` al
-  // rol anónimo, así que en el sitio público esta consulta devuelve vacío por
-  // diseño. En ese caso se muestra el stock físico, que es un sobreconteo
-  // conservador; la verdad la impone `create_order_with_reservations` con su
-  // bloqueo `FOR UPDATE` al confirmar el pedido, y ahí nadie puede colarse.
   if (error !== null) return mapa;
 
   for (const fila of data ?? []) {

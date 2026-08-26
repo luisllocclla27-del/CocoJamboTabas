@@ -22,13 +22,30 @@ export const MAX_FOTOS = 6;
 /** Tallas US que el formulario ofrece, tomadas de la tabla de referencia. */
 export const TALLAS_DISPONIBLES: readonly number[] = TABLA_TALLAS.map((t) => t.us);
 
-export const CONDICIONES = ["nuevo_en_caja", "nuevo_sin_caja"] as const;
+export const CONDICIONES = [
+  "nuevo_en_caja",
+  "nuevo_sin_caja",
+  "usado_como_nuevo",
+  "usado_buen_estado",
+  "vintage",
+] as const;
 
 export type Condicion = (typeof CONDICIONES)[number];
 
 export const ETIQUETA_CONDICION: Readonly<Record<Condicion, string>> = {
   nuevo_en_caja: "Nuevo en caja",
   nuevo_sin_caja: "Nuevo sin caja",
+  usado_como_nuevo: "2da mano · Como nuevo",
+  usado_buen_estado: "2da mano · Buen estado",
+  vintage: "Vintage",
+};
+
+export const DESCRIPCION_CONDICION: Readonly<Record<Condicion, string>> = {
+  nuevo_en_caja: "Nunca usado, con caja original",
+  nuevo_sin_caja: "Nunca usado, sin caja",
+  usado_como_nuevo: "Usado 1-2 veces, sin señales visibles de uso",
+  usado_buen_estado: "Usado, con ligeras marcas normales de uso",
+  vintage: "Antigüedad o carácter especial, con su historia",
 };
 
 /**
@@ -112,3 +129,47 @@ export type EntradaAltaProducto = z.infer<typeof altaProductoSchema>;
 export type ResultadoAlta =
   | { ok: true; slug: string; fotosSubidas: number }
   | { ok: false; error: string; campo?: string };
+
+export const edicionProductoSchema = z
+  .object({
+    brandSlug: z.string().trim().min(1, "Elige una marca."),
+    modelo: z.string().trim().min(2, "Escribe el modelo.").max(80),
+    colorway: z.string().trim().min(2, "Escribe el color.").max(80),
+    silueta: z.string().trim().max(60).optional(),
+    descripcion: z.string().trim().max(1000).optional(),
+    condicion: z.enum(CONDICIONES).default("nuevo_en_caja"),
+    priceCents: solesSchema,
+    costCents: solesSchema,
+    compareAtPriceCents: solesSchema.optional(),
+    notaCalce: z.string().trim().max(200).optional(),
+    activo: z.boolean().default(true),
+    destacado: z.boolean().default(false),
+  })
+  .refine((datos) => datos.costCents <= datos.priceCents, {
+    message: "El costo no puede ser mayor que el precio de venta.",
+    path: ["costCents"],
+  })
+  .refine(
+    (datos) =>
+      datos.compareAtPriceCents === undefined ||
+      datos.compareAtPriceCents > datos.priceCents,
+    {
+      message: "El precio tachado debe ser mayor que el precio de venta.",
+      path: ["compareAtPriceCents"],
+    },
+  );
+
+export type EntradaEdicionProducto = z.infer<typeof edicionProductoSchema>;
+
+export type ResultadoEdicion =
+  | { ok: true; slug: string }
+  | { ok: false; error: string; campo?: string };
+
+export const nuevaVarianteSchema = z.object({
+  productId: z.string().uuid(),
+  sizeUs: z.number().refine((v) => TALLAS_DISPONIBLES.includes(v), {
+    message: "Esa talla US no está en la tabla de referencia.",
+  }),
+  stock: z.number().int().min(0).max(999),
+  sku: z.string().trim().max(40).optional(),
+});

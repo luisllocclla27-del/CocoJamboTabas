@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { formatSoles } from "@/lib/money";
-import { obtenerResumen } from "@/lib/admin/queries";
+import { obtenerProductosSinStock, obtenerResumen } from "@/lib/admin/queries";
 
 export const metadata: Metadata = {
   title: "Resumen",
@@ -20,7 +20,7 @@ export const dynamic = "force-dynamic";
  * siguiente compra de mercadería.
  */
 export default async function ResumenPage() {
-  const resumen = await obtenerResumen();
+  const [resumen, sinStock] = await Promise.all([obtenerResumen(), obtenerProductosSinStock()]);
 
   return (
     <div>
@@ -66,7 +66,7 @@ export default async function ResumenPage() {
         </Link>
       )}
 
-      <div className="mt-6 grid gap-4 sm:grid-cols-3">
+      <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Tarjeta
           etiqueta="Ventas del mes"
           valor={formatSoles(resumen.ventasMesCents)}
@@ -75,13 +75,18 @@ export default async function ResumenPage() {
         <Tarjeta
           etiqueta="Ganancia real del mes"
           valor={formatSoles(resumen.gananciaMesCents)}
-          nota="Precio de venta menos costo del par"
+          nota="Precio de venta menos costo"
           destacada
         />
         <Tarjeta
-          etiqueta="Esperando reposición"
+          etiqueta="Esperando aviso"
           valor={String(resumen.enEspera)}
-          nota="Personas con aviso pendiente"
+          nota="Personas en lista de espera"
+        />
+        <Tarjeta
+          etiqueta="Agotados publicados"
+          valor={String(sinStock)}
+          nota={sinStock > 0 ? "Sin stock activo · Puedes ocultarlos" : "Catálogo al día"}
         />
       </div>
 

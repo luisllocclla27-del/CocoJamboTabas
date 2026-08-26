@@ -34,7 +34,7 @@ export type ReservationStatusDb = "activa" | "confirmada" | "liberada" | "expira
 
 export type ShippingModeDb = "lima_domicilio" | "provincia_agencia" | "recojo_tienda";
 
-export type CondicionDb = "nuevo_en_caja" | "nuevo_sin_caja";
+export type CondicionDb = "nuevo_en_caja" | "nuevo_sin_caja" | "usado_como_nuevo" | "usado_buen_estado" | "vintage";
 
 export type BrandRow = {
   id: string;
